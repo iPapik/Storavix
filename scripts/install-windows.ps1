@@ -8,7 +8,8 @@ $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $install=Join-Path $env:ProgramFiles 'Storavix'
 $data=Join-Path $env:ProgramData 'Storavix'
 $bin=Join-Path $install 'storavix.exe'
-if (Get-Command go -ErrorAction SilentlyContinue) {
+if ($env:STORAVIX_BINARY -and (Test-Path $env:STORAVIX_BINARY)) {$source=$env:STORAVIX_BINARY}
+elseif (Get-Command go -ErrorAction SilentlyContinue) {
   Push-Location $root
   try {& go build -o '.\storavix.exe' '.\cmd\storavix'; if ($LASTEXITCODE -ne 0) {throw 'Go build failed'}}
   finally {Pop-Location}

@@ -130,6 +130,27 @@
 - Ubuntu: https://docs.docker.com/engine/install/ubuntu/
 - Compose: https://docs.docker.com/compose/install/linux/
 
+### 5.1. Docker Engine + Compose Plugin: точные шаги для Debian/Ubuntu
+
+Если Docker на сервере ещё нет, выполните:
+
+    sudo apt update
+    sudo apt install -y ca-certificates curl
+    . /etc/os-release
+    DISTRO="$ID"
+    CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL "https://download.docker.com/linux/${DISTRO}/gpg" -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$DISTRO" "$CODENAME" "$(dpkg --print-architecture)" | sudo tee /etc/apt/sources.list.d/docker.sources
+    sudo apt update
+    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo systemctl enable --now docker
+
+Если Docker уже установлен, сначала проверьте существующие контейнеры и возможные конфликты пакетов. Не удаляйте рабочие контейнеры вслепую.
+
+### 5.2. Запуск Storavix внутри Docker
+
 Убедитесь, что команды sudo docker version и sudo docker compose version работают. Затем:
 
     git clone https://github.com/iPapik/Storavix.git

@@ -4,7 +4,10 @@ umask 077
 (( EUID == 0 )) || { echo 'Use sudo'; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA=/var/lib/storavix
-if command -v go >/dev/null; then
+if [[ -n "${STORAVIX_BINARY:-}" ]]; then
+  SRC="$STORAVIX_BINARY"
+  test -f "$SRC" || { echo 'STORAVIX_BINARY not found'; exit 1; }
+elif command -v go >/dev/null; then
   (cd "$ROOT" && CGO_ENABLED=0 go build -o storavix ./cmd/storavix)
   SRC="$ROOT/storavix"
 else
