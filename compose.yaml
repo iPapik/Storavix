@@ -7,6 +7,7 @@ services:
       STORAVIX_LISTEN: 0.0.0.0:8080
       STORAVIX_DATA_DIR: /data
       # Set a strong first-run password in .env; remove it after provisioning.
+      STORAVIX_ADMIN_USER: ${STORAVIX_ADMIN_USER:-admin}
       STORAVIX_ADMIN_PASSWORD: ${STORAVIX_ADMIN_PASSWORD:?Set STORAVIX_ADMIN_PASSWORD in .env}
       STORAVIX_SECURE_COOKIES: ${STORAVIX_SECURE_COOKIES:-false}
     ports:

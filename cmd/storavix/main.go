@@ -32,7 +32,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.1.0-dev"
+const version = "0.1.1-dev"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -74,20 +74,21 @@ type server struct {
 }
 
 func main() {
-	addr := env("STORAVIX_LISTEN", "127.0.0.1:8080")
-	dir := env("STORAVIX_DATA_DIR", "./data")
-	s, err := newServer(dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Storavix %s listening on http://%s", version, addr)
-	if !isLoopbackBind(addr) {
-		log.Print("WARNING: listening on a network interface. Place Storavix behind a TLS reverse proxy before exposing it outside a trusted network")
-	}
-	h := s.routes()
-	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
-	log.Fatal(srv.ListenAndServe())
+    done, dir, addr, err := executeCLI(os.Args[1:], os.Stdin, os.Stdout)
+    if err != nil { log.Fatal(err) }
+    if done { return }
+    s, err := newServer(dir)
+    if err != nil { log.Fatal(err) }
+    log.Printf("Storavix %s listening on %s", version, addr)
+    for _, u := range accessURLs(addr) { log.Printf("Open Storavix in browser: %s", u) }
+    if !isLoopbackBind(addr) {
+        log.Print("SECURITY: LAN access uses HTTP; restrict firewall access to trusted subnets and deploy HTTPS reverse proxy before untrusted networks")
+    }
+    h := s.routes()
+    srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
+    log.Fatal(srv.ListenAndServe())
 }
+
 func env(k, d string) string {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 		return v

@@ -30,3 +30,5 @@ $('test-email').addEventListener('click',()=>sendTest('/api/settings/mail/test')
 $('test-alert').addEventListener('click',()=>sendTest('/api/alerts/test'));
 $('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');setTimeout(showAuth,900)}catch(err){msg('password-msg',err.message,true)}});
 (async function boot(){try{const s=await api('/api/session');if(s.authenticated)showShell();else showAuth()}catch(e){showAuth();msg('login-msg',e.message,true)}})();
+
+const panelAddress=document.getElementById('panel-address');if(panelAddress)panelAddress.textContent=window.location.host;
