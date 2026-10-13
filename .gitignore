@@ -1,0 +1,7 @@
+/data/
+*.exe
+*.test
+/dist/
+.env
+.idea/
+.vscode/

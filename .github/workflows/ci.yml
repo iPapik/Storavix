@@ -1,0 +1,45 @@
+name: CI and builds
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Unit tests
+        run: go test -race ./...
+      - name: Go vet
+        run: go vet ./...
+  cross-build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {os: linux, arch: amd64, ext: ''}
+          - {os: linux, arch: arm64, ext: ''}
+          - {os: windows, arch: amd64, ext: '.exe'}
+          - {os: windows, arch: arm64, ext: '.exe'}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Compile Storavix
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags='-s -w' -o dist/storavix-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/storavix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storavix-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
