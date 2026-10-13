@@ -43,3 +43,23 @@ jobs:
         with:
           name: storavix-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
+
+  installer-check:
+    name: Installer syntax
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        if: runner.os == 'Linux'
+        run: bash -n scripts/install-linux.sh
+      - name: PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseFile('scripts/install-windows.ps1',[ref]$tokens,[ref]$errors)
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
