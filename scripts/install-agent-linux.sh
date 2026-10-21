@@ -67,3 +67,17 @@ systemctl enable --now storavix-agent
 echo '[6/6] Статус агента:'
 systemctl --no-pager status storavix-agent || true
 printf '\nЖурнал: sudo journalctl -u storavix-agent -f\n'
+
+# Install standalone command for future agent updates.
+cat > /usr/local/sbin/storavix-agent-update <<'UPDATER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+(( EUID == 0 )) || { echo 'Run with sudo: sudo storavix-agent-update' >&2; exit 1; }
+command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
+tmp=$(mktemp /tmp/storavix-agent-update.XXXXXXXX.sh)
+trap 'rm -f -- "$tmp"' EXIT
+curl -fsSL --retry 3 --connect-timeout 15 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-linux.sh' -o "$tmp"
+bash "$tmp"
+UPDATER
+chmod 0755 /usr/local/sbin/storavix-agent-update
+echo 'Next update: sudo storavix-agent-update'
