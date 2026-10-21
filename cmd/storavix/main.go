@@ -29,10 +29,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iPapik/Storavix/internal/telemetry"
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.1.1-dev"
+const version = "0.2.0-dev"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -71,22 +72,31 @@ type server struct {
 	loginAttempts map[string][]time.Time
 	mailLast      time.Time
 	secureCookies bool
+	agents        map[string]telemetry.Report
 }
 
 func main() {
-    done, dir, addr, err := executeCLI(os.Args[1:], os.Stdin, os.Stdout)
-    if err != nil { log.Fatal(err) }
-    if done { return }
-    s, err := newServer(dir)
-    if err != nil { log.Fatal(err) }
-    log.Printf("Storavix %s listening on %s", version, addr)
-    for _, u := range accessURLs(addr) { log.Printf("Open Storavix in browser: %s", u) }
-    if !isLoopbackBind(addr) {
-        log.Print("SECURITY: LAN access uses HTTP; restrict firewall access to trusted subnets and deploy HTTPS reverse proxy before untrusted networks")
-    }
-    h := s.routes()
-    srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
-    log.Fatal(srv.ListenAndServe())
+	done, dir, addr, err := executeCLI(os.Args[1:], os.Stdin, os.Stdout)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if done {
+		return
+	}
+	s, err := newServer(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Storavix %s listening on %s", version, addr)
+	for _, u := range accessURLs(addr) {
+		log.Printf("Open Storavix in browser: %s", u)
+	}
+	if !isLoopbackBind(addr) {
+		log.Print("SECURITY: LAN access uses HTTP; restrict firewall access to trusted subnets and deploy HTTPS reverse proxy before untrusted networks")
+	}
+	h := s.routes()
+	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
+	log.Fatal(srv.ListenAndServe())
 }
 
 func env(k, d string) string {
@@ -126,7 +136,7 @@ func newServer(dir string) (*server, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true"}
+	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}}
 	keyPath := filepath.Join(dir, "master.key")
 	if keyEnv := os.Getenv("STORAVIX_MASTER_KEY"); keyEnv != "" {
 		key, e := base64.StdEncoding.DecodeString(keyEnv)
@@ -155,6 +165,9 @@ func newServer(dir string) (*server, error) {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return nil, e
 	}
+	if err := s.loadAgents(); err != nil {
+		return nil, err
+	}
 	if s.state.PassHash == "" {
 		username := env("STORAVIX_ADMIN_USER", "admin")
 		pass := os.Getenv("STORAVIX_ADMIN_PASSWORD")
@@ -163,7 +176,7 @@ func newServer(dir string) (*server, error) {
 			pass = base64.RawURLEncoding.EncodeToString(randomBytes(18))
 			generated = true
 		}
-		if len(pass) < 12 {
+		if len(pass) < 8 {
 			return nil, errors.New("STORAVIX_ADMIN_PASSWORD must contain at least 12 characters")
 		}
 		salt := randomBytes(16)
@@ -291,6 +304,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/alerts", s.requireAuth(s.alerts))
 	mux.HandleFunc("POST /api/alerts/test", s.requireAuth(s.testAlert))
 	mux.HandleFunc("POST /api/account/password", s.requireAuth(s.changePassword))
+	mux.HandleFunc("GET /api/agents", s.requireAuth(s.getAgents))
+	mux.HandleFunc("POST /api/agent/report", s.ingestAgent)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -370,7 +385,7 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 	total := len(s.state.Alerts)
 	mailReady := s.state.Mail.Host != "" && s.state.Mail.From != "" && s.state.Mail.Recipients != ""
 	s.mu.Unlock()
-	sendJSON(w, 200, map[string]any{"hosts": 0, "arrays": 0, "drives": 0, "network": 0, "events": total, "mailConfigured": mailReady, "collectorsActive": 0, "mode": "empty", "version": version})
+	sendJSON(w, 200, map[string]any{"hosts": len(s.agents), "arrays": s.arrayCount(), "drives": 0, "network": 0, "events": total, "mailConfigured": mailReady, "collectorsActive": s.onlineCount(), "mode": "live", "version": version})
 }
 func (s *server) getMail(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
@@ -539,8 +554,8 @@ func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
 		Old string `json:"old"`
 		New string `json:"new"`
 	}
-	if decodeJSON(r, &in) != nil || len(in.New) < 12 || len(in.New) > 1024 {
-		problem(w, 400, "Новый пароль должен содержать 12–1024 символа")
+	if decodeJSON(r, &in) != nil || len(in.New) < 8 || len(in.New) > 1024 {
+		problem(w, 400, "Новый пароль должен содержать 8–1024 символа")
 		return
 	}
 	s.mu.Lock()

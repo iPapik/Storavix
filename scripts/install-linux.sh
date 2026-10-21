@@ -1,47 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Storavix bare-metal installer for Debian / Ubuntu / other systemd distributions.
+# Usage: sudo bash scripts/install-linux.sh
 set -euo pipefail
 umask 077
-(( EUID == 0 )) || { echo 'Use sudo'; exit 1; }
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA=/var/lib/storavix
+
+echo "[Storavix] Начало установки — проверка требований..."
+if (( EUID != 0 )); then echo 'Ошибка: запустите sudo bash scripts/install-linux.sh' >&2; exit 1; fi
+if ! command -v systemctl >/dev/null; then echo 'Требуется Linux с systemd.' >&2; exit 1; fi
+if ! command -v runuser >/dev/null; then echo 'Требуется утилита runuser (util-linux).' >&2; exit 1; fi
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN='/usr/local/bin/storavix'
+DATA='/var/lib/storavix'
+PORT=8080
+
+echo '[1/7] Проверка бинарного файла и зависимостей...' 
 if [[ -n "${STORAVIX_BINARY:-}" ]]; then
-  SRC="$STORAVIX_BINARY"
-  test -f "$SRC" || { echo 'STORAVIX_BINARY not found'; exit 1; }
+  [[ -f "$STORAVIX_BINARY" ]] || { echo "Бинарный файл не найден: $STORAVIX_BINARY" >&2; exit 1; }
+  SOURCE="$STORAVIX_BINARY"
 elif command -v go >/dev/null; then
-  (cd "$ROOT" && CGO_ENABLED=0 go build -o storavix ./cmd/storavix)
-  SRC="$ROOT/storavix"
+  MINOR="$(go version | sed -nE 's/.*go1\.([0-9]+)(\.[0-9]+)?.*/\1/p')"
+  [[ "$MINOR" =~ ^[0-9]+$ ]] && ((MINOR>=23)) || { echo 'Для сборки требуется Go >= 1.23.' >&2; exit 1; }
+  # Always rebuild sources on upgrade to avoid deploying a stale binary.
+  echo 'Сборка сервера из актуальных исходников...'
+  (cd "$BASE" && CGO_ENABLED=0 go build -trimpath -o "$BASE/storavix" ./cmd/storavix)
+  SOURCE="$BASE/storavix"
+elif [[ -f "$BASE/storavix" ]]; then
+  SOURCE="$BASE/storavix"
+elif [[ -f "$BASE/dist/storavix-linux-amd64" ]]; then
+  SOURCE="$BASE/dist/storavix-linux-amd64"
 else
-  SRC="${STORAVIX_BINARY:-$ROOT/storavix}"
-  test -f "$SRC" || { echo 'Go 1.23+ or STORAVIX_BINARY required'; exit 1; }
+  echo 'Go >=1.23 или готовый бинарный файл не найден. См. https://go.dev/dl/' >&2
+  exit 1
 fi
-id storavix >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin storavix
-install -d -m 0700 -o storavix -g storavix "$DATA"
-systemctl is-active --quiet storavix && systemctl stop storavix || true
-install -m 0755 "$SRC" /usr/local/bin/storavix
+
+echo '[2/7] Создание служебной учётной записи и каталога данных...'
+if ! id storavix >/dev/null 2>&1; then
+  useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin storavix
+fi
+install -d -o storavix -g storavix -m 0700 "$DATA"
+echo '[3/7] Остановка старой службы (если присутствует)...'
+if systemctl is-active --quiet storavix.service; then systemctl stop storavix.service; fi
+echo '[4/7] Копирование исполняемого файла...'
+install -o root -g root -m 0755 "$SOURCE" "$BIN"
+
+echo '[5/7] Настройка администратора и сети...'
 if [[ ! -f "$DATA/state.json" ]]; then
   while :; do
-    read -r -p 'Логин администратора [admin]: ' USERNAME
+    read -r -p 'Придумайте логин администратора [admin]: ' USERNAME
     USERNAME="${USERNAME:-admin}"
-    [[ "$USERNAME" =~ ^[a-zA-Z0-9._-]{3,64}$ ]] && break
-    echo 'Логин: 3–64 символа, латиница, цифры, . _ -'
+    if [[ "$USERNAME" =~ ^[A-Za-z0-9._-]{3,64}$ ]]; then break; fi
+    echo 'Допустимы 3–64 символа: латиница, цифры, точка, дефис, подчёркивание.'
   done
   while :; do
-    read -rs -p 'Пароль (от 12 символов): ' PASSWORD; echo
-    read -rs -p 'Повторите пароль: ' CONFIRM; echo
-    (( ${#PASSWORD} >= 12 )) && [[ "$PASSWORD" == "$CONFIRM" ]] && break
-    echo 'Пароли не совпадают или слишком короткие'
+    read -r -s -p 'Придумайте пароль (от 8 символов): ' PASSWORD; echo
+    read -r -s -p 'Повторите пароль: ' CONFIRM; echo
+    if (( ${#PASSWORD} < 8 )); then echo 'Пароль слишком короткий.'; continue; fi
+    if [[ "$PASSWORD" != "$CONFIRM" ]]; then echo 'Пароли не совпадают.'; continue; fi
+    break
   done
-  printf '%s\n' "$PASSWORD" | runuser -u storavix -- /usr/local/bin/storavix init --data-dir "$DATA" --admin-user "$USERNAME" --listen 0.0.0.0:8080 --password-stdin
+  printf '%s\n' "$PASSWORD" | runuser -u storavix -- "$BIN" init --data-dir "$DATA" --listen "0.0.0.0:${PORT}" --admin-user "$USERNAME" --password-stdin
   unset PASSWORD CONFIRM
 else
-  echo 'Существующая учётная запись и конфигурация сохранены'
-  runuser -u storavix -- /usr/local/bin/storavix configure --data-dir "$DATA" --listen 0.0.0.0:8080
+  echo 'Установка уже существует: сохраняем пароль, SMTP, события и данные.'
+  runuser -u storavix -- "$BIN" configure --data-dir "$DATA" --listen "0.0.0.0:${PORT}"
 fi
-cat > /etc/systemd/system/storavix.service <<'EOF'
+
+echo '[6/7] Создание службы systemd и включение автозапуска...'
+cat > /etc/systemd/system/storavix.service <<'SERVICE'
 [Unit]
-Description=Storavix Web Monitoring
+Description=Storavix infrastructure monitoring web server
 After=network-online.target
 Wants=network-online.target
+
 [Service]
 Type=simple
 User=storavix
@@ -51,15 +81,22 @@ ExecStart=/usr/local/bin/storavix --data-dir /var/lib/storavix
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
+PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/storavix
 UMask=0077
+
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE
 systemctl daemon-reload
-systemctl enable --now storavix
-systemctl --no-pager status storavix || true
-hostname -I | tr ' ' '\n' | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print "Web panel: http://"$0":8080"}'
-echo 'Allow TCP 8080 only for trusted LAN. For production deploy HTTPS reverse proxy.'
+systemctl enable --now storavix.service
+echo '[7/7] Проверка состояния и сетевых адресов...'
+sleep 1
+systemctl --no-pager --full status storavix.service || true
+printf '\nАдреса доступа (фактические IPv4-адреса этого сервера):\n'
+hostname -I 2>/dev/null | tr ' ' '\n' | awk -v p="$PORT" '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print "  http://"$0":"p}' || true
+printf '\nВажно: разрешите TCP %s только из доверенной локальной сети. Для доступа извне настройте HTTPS.\n' "$PORT"
+printf 'Проверка: curl -f http://127.0.0.1:%s/api/health\n' "$PORT"
+printf 'Журнал: sudo journalctl -u storavix -f\n'

@@ -1,44 +1,76 @@
 # Storavix
 
-Self-hosted infrastructure monitoring foundation, focusing on future RAID, disks, SNMP and Syslog.
+**Storavix** — самостоятельная платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.0-dev**: чёрный веб-интерфейс и первые реальные агенты с мониторингом CPU/RAM/системного раздела/сети/uptime; программный Linux RAID mdadm через `/proc/mdstat`. Аппаратные RAID-контроллеры, SNMP и Syslog находятся в разработке. Никаких сгенерированных данных «здоровых серверов» в интерфейсе нет.
 
-**v0.1.1-dev** — dark web UI, selectable initial administrator login, protected state, SMTP test alerts, IP auto-discovery. **Collectors are still in development.**
+![Storavix logo](internal/web/static/storavix-logo.webp)
 
-## Установка на русском
+## Быстрый старт: Linux без Docker
 
-**[Полная инструкция от А до Я для Linux, Windows и Docker](docs/INSTALL-RU.md)**
+Из готового комплекта (в папке лежит готовый бинарный `storavix`):
 
-### Linux без Docker
+```bash
+sudo apt update && sudo apt install -y unzip
+unzip Storavix-v0.2.0-complete-kit.zip
+cd Storavix
+sudo env STORAVIX_BINARY="$(pwd)/storavix" bash scripts/install-linux.sh
+```
 
-    sudo apt update
-    sudo apt install -y git golang-go ca-certificates
-    # Requires Go 1.23+ or a compiled binary; https://go.dev/dl/
-    git clone https://github.com/iPapik/Storavix.git
-    cd Storavix
-    sudo bash scripts/install-linux.sh
+Из GitHub-исходников (нужен Go 1.23+):
 
-The installer prompts for **administrator username, password and confirmation**; sets up systemd, displays IPv4 browser URLs and preserves state on upgrades.
+```bash
+git clone https://github.com/iPapik/Storavix.git
+cd Storavix
+sudo bash scripts/install-linux.sh
+```
 
-### Windows / Windows Server без Docker
+Скрипт показывает этапы установки, запрашивает логин/пароль администратора **от 8 символов** и открывает сервис на `0.0.0.0:8080`. В браузере используется *фактический адрес* сервера, например `http://192.168.1.20:8080`. Без TLS допускается только доверенная сеть.
 
-Install Git and Go 1.23+ (or use a compiled EXE), run PowerShell as Administrator:
+## Быстрый старт: Windows
 
-    cd C:\
-    git clone https://github.com/iPapik/Storavix.git
-    cd C:\Storavix
-    Set-ExecutionPolicy -Scope Process Bypass -Force
-    .\scripts\install-windows.ps1
+Распакуйте готовый комплект в `C:\Storavix`. Откройте PowerShell администратором:
 
-The installer prompts for credentials, sets Windows Task Scheduler autostart under SYSTEM, secures ProgramData and shows actual IPv4 addresses.
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+cd C:\Storavix
+$env:STORAVIX_BINARY = "C:\Storavix\storavix.exe"
+.\scripts\install-windows.ps1
+```
 
-### Development
+## Агент: как подключить первый сервер
 
-    go test ./...
-    go vet ./...
-    go build -o storavix ./cmd/storavix
+На **центральном Linux-сервере** скопируйте регистрационный токен:
 
-Use HTTPS reverse proxy or VPN before untrusted access; port 8080 is plain HTTP. Docker is OPTIONAL; see guide. SMTP test emails work, but real RAID events need future agents and alert rules.
+```bash
+sudo runuser -u storavix -- /usr/local/bin/storavix agent-token --data-dir /var/lib/storavix
+```
 
-GitHub issues: [RAID agent](https://github.com/iPapik/Storavix/issues/1), [mail alert rules](https://github.com/iPapik/Storavix/issues/2), [SNMP and syslog](https://github.com/iPapik/Storavix/issues/3).
+На тестовом хосте Linux распакуйте тот же комплект и запустите:
 
-License not yet selected.
+```bash
+sudo bash scripts/install-agent-linux.sh
+```
+
+Введите `http://IP-СЕРВЕРА:8080` и токен. На Windows-агенте откройте PowerShell администратором и выполните `scripts\install-agent-windows.ps1`. Через 30–60 секунд откройте раздел **Все системы**.
+
+> Примечание: HTTP раскрывает токен сетевым наблюдателям. Для production установите HTTPS-прокси. Показатели RAID физических дисков Dell/HPE/LSI пока **не реализованы**, не путайте заполнение системного тома с исправностью RAID.
+
+## Обновление поверх существующей установки (с резервным копированием)
+
+Linux: `sudo bash scripts/update-linux.sh` из новой версии. Windows: `scripts\update-windows.ps1` от администратора. Установщики агента допускают повторный запуск для обновления при сохранении настроек. См. [подробную инструкцию](docs/UPDATE-RU.md).
+
+## Документация
+
+- [Установка агентов и получение токена](docs/AGENT-RU.md)
+- [Обновление и откат](docs/UPDATE-RU.md)
+- [Установка v0.1, SMTP, Docker и диагностика](docs/INSTALL-RU.md)
+
+## Разработка
+
+```bash
+go test ./...
+go vet ./...
+go build ./cmd/storavix
+go build ./cmd/storavix-agent
+```
+
+**Лицензия:** пока не задана; перед публичными сторонними вкладами необходимо выбрать файл LICENSE.

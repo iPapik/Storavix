@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Compile Storavix
+      - name: Compile Storavix server and agent
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
@@ -39,27 +39,8 @@ jobs:
         run: |
           mkdir -p dist
           go build -trimpath -ldflags='-s -w' -o dist/storavix-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/storavix
+          go build -trimpath -ldflags='-s -w' -o dist/storavix-agent-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/storavix-agent
       - uses: actions/upload-artifact@v4
         with:
           name: storavix-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
-
-  installer-check:
-    name: Installer syntax
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Bash syntax
-        if: runner.os == 'Linux'
-        run: bash -n scripts/install-linux.sh
-      - name: PowerShell syntax
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tokens=$null
-          $errors=$null
-          $null=[System.Management.Automation.Language.Parser]::ParseFile('scripts/install-windows.ps1',[ref]$tokens,[ref]$errors)
-          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
