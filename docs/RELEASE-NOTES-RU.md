@@ -1,10 +1,10 @@
-# Storavix v0.2.1
+# Storavix v0.2.2 — Windows Agent installer fix and host layouts
 
-- Установка агента на Linux одной командой из GitHub Releases (AMD64 / ARM64).
-- Установка агента в Windows из PowerShell одной командой — готовый EXE скачивается автоматически.
-- Проверка SHA-256 скачанного пакета.
-- Компактный логотип в боковой панели и окне входа.
-- Сохранение прежнего токена и ID агента при обновлении.
-- В релизе доступны серверные и агентские бинарники для Linux/Windows.
+- Fixed Windows PowerShell 5.1 parsing failures from UTF-8 without BOM. Both agent installer scripts use ASCII-only prompts/status.
+- Added one-command agent updates: `sudo storavix-agent-update` (Linux) and `storavix-agent-update` (Windows in a new elevated terminal).
+- Reuse existing agent token, server URL and persistent identity during updates.
+- Windows agent setup backs up the previous binary and attempts to restore it on startup failure.
+- Enlarged host cards and added 2-column, 3-column, 4-column and list layouts with browser-side persistence.
+- Release includes agent/server binaries for Windows and Linux, AMD64/ARM64, with SHA256SUMS.
 
-**Пока не поддерживается аппаратный RAID-контроль Dell PERC, LSI/Broadcom и HPE.** Первая версия агента измеряет CPU, RAM, uptime, занятость системного диска и сеть. Windows EXE не подписан Code Signing сертификатом.
+**Note:** The agent EXE is a background worker, not a GUI installer. Hardware RAID/SMART are still not fully implemented. Unsigned binaries may trigger SmartScreen; HTTPS is recommended.

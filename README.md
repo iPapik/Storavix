@@ -1,6 +1,6 @@
 # Storavix
 
-**Storavix** — самостоятельная платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.0-dev**: чёрный веб-интерфейс и первые реальные агенты с мониторингом CPU/RAM/системного раздела/сети/uptime; программный Linux RAID mdadm через `/proc/mdstat`. Аппаратные RAID-контроллеры, SNMP и Syslog находятся в разработке. Никаких сгенерированных данных «здоровых серверов» в интерфейсе нет.
+**Storavix** — самостоятельная платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.2**: чёрный веб-интерфейс и первые реальные агенты с мониторингом CPU/RAM/системного раздела/сети/uptime; программный Linux RAID mdadm через `/proc/mdstat`. Аппаратные RAID-контроллеры, SNMP и Syslog находятся в разработке. Никаких сгенерированных данных «здоровых серверов» в интерфейсе нет.
 
 ![Storavix logo](internal/web/static/storavix-logo.webp)
 
@@ -97,3 +97,19 @@ go build ./cmd/storavix-agent
 **Windows PowerShell (администратор):** `$p=Join-Path $env:TEMP 'storavix-agent-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-windows.ps1' -OutFile $p -UseBasicParsing; & $p`
 
 Подробно: [AGENT-RU.md](docs/AGENT-RU.md). Готовые бинарники: [Releases](https://github.com/iPapik/Storavix/releases).
+
+## Актуальная установка агентов (v0.2.2)
+
+Windows PowerShell 5.1/7 от администратора:
+
+```powershell
+$p=Join-Path $env:TEMP 'storavix-agent-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-windows.ps1' -OutFile $p -UseBasicParsing; & $p
+```
+
+Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-linux.sh -o /tmp/storavix-agent-install.sh && sudo bash /tmp/storavix-agent-install.sh
+```
+
+Обновление после установки: `sudo storavix-agent-update` (Linux), `storavix-agent-update` (новый PowerShell/CMD от администратора, Windows). В Windows новая версия исправляет проблему UTF-8 без BOM, которая приводила к ошибкам PowerShell 5.1. Подробнее: [инструкция по агентам](docs/AGENT-RU.md).
