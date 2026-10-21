@@ -177,7 +177,7 @@ func newServer(dir string) (*server, error) {
 			generated = true
 		}
 		if len(pass) < 8 {
-			return nil, errors.New("STORAVIX_ADMIN_PASSWORD must contain at least 12 characters")
+			return nil, errors.New("STORAVIX_ADMIN_PASSWORD must contain at least 8 characters")
 		}
 		salt := randomBytes(16)
 		s.state.AdminUser = username

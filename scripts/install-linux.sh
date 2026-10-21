@@ -92,7 +92,13 @@ WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
 systemctl enable --now storavix.service
-echo '[7/7] Проверка состояния и сетевых адресов...'
+echo '[7/7] Установка команды обновления и проверка адресов...'
+if [[ -f "$BASE/scripts/update-online-linux.sh" ]]; then
+  install -D -o root -g root -m 0755 "$BASE/scripts/update-online-linux.sh" /usr/local/sbin/storavix-update
+  echo 'Готово: для следующих обновлений — sudo storavix-update'
+else
+  echo 'Для первого обновления установите updater из GitHub (см. docs/UPDATE-RU.md).'
+fi
 sleep 1
 systemctl --no-pager --full status storavix.service || true
 printf '\nАдреса доступа (фактические IPv4-адреса этого сервера):\n'

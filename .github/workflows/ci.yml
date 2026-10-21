@@ -16,6 +16,8 @@ jobs:
         run: go test -race ./...
       - name: Go vet
         run: go vet ./...
+      - name: Validate Linux scripts
+        run: bash -n scripts/*.sh
   cross-build:
     needs: test
     runs-on: ubuntu-latest
