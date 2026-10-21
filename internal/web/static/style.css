@@ -49,3 +49,10 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .system-detail-panel h2{margin:0 0 23px}.system-detail-panel h3{font-size:15px;margin-top:26px}.detail-close{position:absolute;right:18px;top:13px;border:0;background:transparent;color:#fff;font-size:28px}.detail-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #363636;padding:11px 0;font-size:13px}.detail-row span{color:#b1b1b1}
 @media(max-width:1250px){.systems-grid{grid-template-columns:repeat(2,minmax(260px,1fr))}}
 @media(max-width:700px){.systems-grid{grid-template-columns:1fr}.systems-toolbar{align-items:stretch;flex-direction:column}.systems-actions{flex-wrap:wrap}.systems-actions input{width:100%}.systems-grid.list-layout .system-metrics{display:block}.sidebar-logo{height:100px}}
+
+/* v0.2.1: make original StorAvix logo unobtrusive in navigation and login. */
+.sidebar .brand{padding:6px 8px 13px;justify-content:center;min-height:66px}
+.sidebar-logo{display:block;width:154px;max-width:100%;height:68px;object-fit:contain;object-position:center;margin:0}
+.login-brand{margin:0 0 16px;padding:0}
+.login-logo{display:block;width:172px;max-width:100%;height:119px;object-fit:contain;margin:0 auto}
+@media(max-width:700px){.sidebar-logo{width:145px;height:60px}}

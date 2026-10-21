@@ -88,3 +88,12 @@ go build ./cmd/storavix-agent
 ```
 
 **Лицензия:** пока не задана; перед публичными сторонними вкладами необходимо выбрать файл LICENSE.
+
+
+## Установка агентов из GitHub Releases (v0.2.1)
+
+**Linux:** `curl -fsSL https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-linux.sh -o /tmp/storavix-agent-install.sh && sudo bash /tmp/storavix-agent-install.sh`
+
+**Windows PowerShell (администратор):** `$p=Join-Path $env:TEMP 'storavix-agent-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-windows.ps1' -OutFile $p -UseBasicParsing; & $p`
+
+Подробно: [AGENT-RU.md](docs/AGENT-RU.md). Готовые бинарники: [Releases](https://github.com/iPapik/Storavix/releases).

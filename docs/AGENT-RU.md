@@ -1,70 +1,70 @@
-# Storavix Agent v0.2.0 — установка и подключение
+# Storavix Agent — установка на Windows и Linux
 
-> Статус: первый рабочий MVP. CPU, RAM, заполнение системного тома, скорость сети, uptime и load average на Linux. `/proc/mdstat` используется для **программного Linux RAID mdadm**. Статусы аппаратных Dell PERC/LSI MegaRAID/HPE Smart Array, SMART, GPU, службы, обновления и температура пока **не собираются**. Если данных нет — в интерфейсе отображается «—» или «нет данных», а не «исправно».
+Агенты устанавливаются **на конечные серверы**, не на центральную панель (кроме случаев, когда нужно мониторить и сам сервер Storavix). Go и Docker на конечных серверах не нужны.
 
-## 1. Получить регистрационный токен на центральном сервере
+## Шаг 1. Получи токен на центральном Storavix
 
-**Linux сервер Storavix** (на сервере, где установлен веб-интерфейс):
-
+**Linux (центральный сервер):**
 ```bash
 sudo runuser -u storavix -- /usr/local/bin/storavix agent-token --data-dir /var/lib/storavix
 ```
 
-**Windows сервер Storavix** — PowerShell администратора:
-
+**Windows (если центральная панель работает в Windows):**
 ```powershell
 & "$env:ProgramFiles\Storavix\storavix.exe" agent-token --data-dir "$env:ProgramData\Storavix"
 ```
 
-Команда выведет токен длиной 64 шестнадцатеричных символа. Он одинаков для всех агентов этого экземпляра в данном MVP и является секретом: не публикуйте его в GitHub или чатах. Если токен утёк, потребуется заменить `agent.token` на сервере и заново настроить агенты (автоматическая ротация пока не реализована).
+Токен содержит секрет авторизации и используется агентами данного экземпляра; не публикуй его. Для подключения потребуется IP или HTTPS-адрес центральной панели.
 
-**Подключение через Интернет и сегменты с недоверенным трафиком:** обязательно разместите Storavix за HTTPS-прокси и используйте `https://` в агенте. Работа по HTTP разрешена только с явным флагом `--allow-http` для полностью доверенной лабораторной сети, потому что токен иначе передаётся открыто.
+## Шаг 2A. Linux
 
-## 2. Установка агента на Debian/Ubuntu
-
-Подготовьте исходники или готовый комплект с бинарником `storavix-agent`:
+На **мониторируемом сервере** (Ubuntu/Debian, systemd) установи curl, если его нет:
 
 ```bash
-sudo apt update
-sudo apt install -y unzip curl
-unzip Storavix-v0.2.0-complete-kit.zip
-cd Storavix
-sudo bash scripts/install-agent-linux.sh
+sudo apt update && sudo apt install -y curl ca-certificates
 ```
 
-Установщик последовательно показывает стадии, спрашивает URL сервера, затем регистрационный токен. После ввода создаются учётная запись `storavix-agent`, служба `storavix-agent.service`, файл токена `/etc/storavix-agent/token` и постоянный идентификатор в `/var/lib/storavix-agent/agent.id`.
+**Одна команда установки или обновления:**
 
-Важные команды:
+```bash
+curl -fsSL https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-linux.sh -o /tmp/storavix-agent-install.sh && sudo bash /tmp/storavix-agent-install.sh
+```
+
+Программа определит AMD64/ARM64, скачает `storavix-agent-linux-*.tar.gz` и `SHA256SUMS` из GitHub Releases и проверит файл. Затем спросит (при первой установке) URL сервера и регистрационный токен, установит бинарник в `/usr/local/bin/storavix-agent` и зарегистрирует службу `storavix-agent`.
+
+**Проверка:**
 
 ```bash
 sudo systemctl status storavix-agent --no-pager
-sudo journalctl -u storavix-agent -n 70 --no-pager
-sudo systemctl restart storavix-agent
+sudo journalctl -u storavix-agent -n 60 --no-pager
 ```
 
-## 3. Установка на Windows Server
+## Шаг 2B. Windows
 
-Распакуйте полный комплект, запустите PowerShell от имени администратора:
+Открой PowerShell **от имени администратора** на конечном Windows-сервере. Выполни одной строкой:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force
-cd C:\Storavix
-.\scripts\install-agent-windows.ps1
+$p=Join-Path $env:TEMP 'storavix-agent-install.ps1'; Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-windows.ps1' -OutFile $p -UseBasicParsing; & $p
+```
+
+Установщик скачает `storavix-agent-windows-amd64.zip` (либо ARM64), проверит SHA-256, спросит URL сервера и токен, положит `storavix-agent.exe` в `C:\Program Files\Storavix Agent` и создаст задачу автозапуска `StoravixAgent` от SYSTEM. Данные и токен сохраняются в `C:\ProgramData\StoravixAgent`.
+
+**Проверка:**
+
+```powershell
 Get-ScheduledTask -TaskName StoravixAgent
 ```
 
-Вопросы аналогичны Linux: URL и токен. Задание `StoravixAgent` работает от SYSTEM, настройки расположены в `C:\ProgramData\StoravixAgent` с ограниченными ACL.
+Windows EXE пока не подписан сертификатом разработчика — SmartScreen может предупредить. Отдельного MSI пока нет; PowerShell устанавливает готовый EXE автоматически.
 
-## 4. Проверка передачи данных
+## Шаг 3. Проверь на панели
 
-Откройте веб-панель: **Все системы**. Через 30–60 секунд после запуска появятся карточки реальных агентов. В карточках видны CPU, RAM, заполнение системного раздела, сетевой обмен и uptime. Первый CPU/сетевой замер может отсутствовать до второго опроса — для вычисления скорости нужен интервал.
+Открой **Все системы** на центральном Storavix. Новое устройство появится после отправки первых показателей, обычно за 30–60 секунд. Отсутствие RAID/SMART показателей не является показателем здоровья дисков — аппаратные адаптеры будут добавлены позднее.
 
-Важно: процент строки **«Диск»** означает занятую ёмкость системного раздела, а не состояние накопителя или RAID.
+## Обновление
 
-Если агент не появился: проверьте время на компьютерах, доступность TCP-порта сервера, токен, логи агента, корректность URL. На HTTP-сервере при ручном запуске агент требует `--allow-http`.
+Повтори эту же команду на нужном устройстве. Существующие токен, ID агента и URL сервера сохраняются. По умолчанию скачивается последний GitHub Release; для закрепления определённой версии задай переменную окружения `STORAVIX_RELEASE_TAG=v0.2.1` до запуска.
 
-## 5. Обновление агента
+**Безопасность:** для подключения через недоверенные сети используй HTTPS. При подключении по HTTP токен передаётся открыто — это допускается только в изолированной доверенной LAN.
 
-Запустите `install-agent-linux.sh` либо `install-agent-windows.ps1` из **нового комплекта** на хосте, где уже работает агент. Скрипт заменит бинарник и перезапустит задачу/службу, сохранив ID, URL и токен.
-
-Это локальное обновление хоста; централизованная массовая раскатка пока не реализована. Для крупного парка её можно выполнять с помощью Ansible/GPO после тестов.
+[Все релизы и пакеты](https://github.com/iPapik/Storavix/releases)
