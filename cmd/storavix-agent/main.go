@@ -59,7 +59,24 @@ func main() {
 	interval := flag.Duration("interval", 30*time.Second, "polling interval, minimum 15s")
 	once := flag.Bool("once", false, "send a single report")
 	allowHTTP := flag.Bool("allow-http", false, "INSECURE: allow unencrypted transport on a trusted network only")
+	logFile := flag.String("log-file", "", "agent diagnostics file; default data-dir/agent.log")
 	flag.Parse()
+	// Write diagnostics before validating URL/token/agent ID, otherwise Task
+	// Scheduler reports only LastTaskResult=1 without a useful error.
+	log.SetFlags(log.LstdFlags | log.LUTC)
+	logPath := *logFile
+	if logPath == "" {
+		logPath = filepath.Join(*data, "agent.log")
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0700); err != nil {
+		log.Printf("cannot prepare log directory %q: %v", filepath.Dir(logPath), err)
+	} else if file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err != nil {
+		log.Printf("cannot open diagnostic log %q: %v", logPath, err)
+	} else {
+		defer file.Close()
+		log.SetOutput(io.MultiWriter(os.Stderr, file))
+	}
+	log.Printf("Storavix Agent starting version=%s os=%s data_dir=%q server=%q", telemetry.AgentVersion, runtime.GOOS, *data, *serverURL)
 	if *interval < 15*time.Second {
 		log.Fatal("interval must be at least 15s")
 	}
@@ -75,16 +92,17 @@ func main() {
 	}
 	tokenBytes, e := os.ReadFile(*tokenFile)
 	if e != nil {
-		log.Fatal(e)
+		log.Fatalf("unable to read token file %q: %v", *tokenFile, e)
 	}
 	token := strings.TrimSpace(string(tokenBytes))
-	if len(token) < 32 {
-		log.Fatal("invalid token")
+	if len(token) != 64 {
+		log.Fatal("invalid registration token length (expected 64 hexadecimal characters)")
 	}
 	id, e := ensureID(*data)
 	if e != nil {
-		log.Fatal(e)
+		log.Fatalf("agent identity error in %q: %v", *data, e)
 	}
+	log.Printf("agent identity loaded")
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "unknown"

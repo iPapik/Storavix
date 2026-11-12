@@ -44,6 +44,7 @@ try {
   Write-SetupLog 'Configuration started.'
   $serverPath = Join-Path $dataDir 'server.txt'
   $tokenPath = Join-Path $dataDir 'token'
+  $agentLogPath = Join-Path $dataDir 'agent.log'
   $url = ''
   if (Test-Path -LiteralPath $serverPath) { $url = (Get-Content -LiteralPath $serverPath -Raw).Trim() }
   $hasToken = Test-Path -LiteralPath $tokenPath
@@ -138,8 +139,16 @@ try {
     $token='' # Do not retain secret in memory longer than necessary.
   }
   Set-Content -LiteralPath $serverPath -Value $url -Encoding Ascii -NoNewline
+  # Files created by older installers may retain restrictive ACLs that block LocalSystem.
+  # Apply explicit SYSTEM + Administrators permissions to configuration files.
+  foreach ($configPath in @($tokenPath, $serverPath)) {
+    if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+      & icacls.exe $configPath /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw ('Could not grant SYSTEM access to '+$configPath) }
+    }
+  }
   $flags=''; if ($parsed.Scheme -eq 'http') { $flags=' --allow-http' }
-  $args='--server "'+$url+'" --token-file "'+$tokenPath+'" --data-dir "'+$dataDir+'" --interval 30s'+$flags
+  $args='--server "'+$url+'" --token-file "'+$tokenPath+'" --data-dir "'+$dataDir+'" --log-file "'+$agentLogPath+'" --interval 30s'+$flags
 
   Write-SetupLog 'Creating StoravixAgent scheduled task under LocalSystem.'
   $action=New-ScheduledTaskAction -Execute $binary -Argument $args -WorkingDirectory $installDir
@@ -158,8 +167,19 @@ try {
   }
   $result=(Get-ScheduledTaskInfo -TaskName StoravixAgent -ErrorAction Stop).LastTaskResult
   Write-SetupLog ('Task state='+$state+' LastTaskResult='+$result)
-  if ($state -ne 'Running') { throw ('Task registered but failed to start. State='+$state+' LastTaskResult='+$result) }
-  Write-SetupLog ('SUCCESS. Server='+$url)
+  if ($state -ne 'Running') {
+    $details = ''
+    if (Test-Path -LiteralPath $agentLogPath -PathType Leaf) {
+      $recent = @(Get-Content -LiteralPath $agentLogPath -Tail 12 -ErrorAction SilentlyContinue)
+      $details = ($recent -join [Environment]::NewLine)
+      Write-SetupLog ('Recent agent log: '+($recent -join ' | '))
+    } else {
+      $details = 'Agent log file was not created. Check Windows Defender, AppLocker, Code Integrity and executable permissions.'
+      Write-SetupLog $details
+    }
+    throw ('Agent process exited. Task state='+$state+' LastTaskResult='+$result+[Environment]::NewLine+'Agent diagnostics: '+$agentLogPath+[Environment]::NewLine+$details)
+  }
+  Write-SetupLog ('SUCCESS. Server='+$url+' AgentLog='+$agentLogPath)
   $success = 'Storavix Agent is running.'+[Environment]::NewLine+'Scheduled task: StoravixAgent'+[Environment]::NewLine+'Server: '+$url+[Environment]::NewLine+'Diagnostics: '+$script:logPath
   if ($usingGui) { Show-StoravixDialog $success $false }
   else { Write-Host $success -ForegroundColor Green }
