@@ -123,3 +123,8 @@ Windows x64 MSI and Setup EXE in [Releases](https://github.com/iPapik/Storavix/r
 ## Windows Agent MSI / EXE (v0.2.5)
 
 Autonomous installers are distributed as GitHub Release assets. The agent is not considered installed until the `StoravixAgent` task is created and running. MSI offers to open the offline configuration wizard after installation, and EXE runs the wizard during installation. Setup errors appear in a message box and in `C:\\ProgramData\\StoravixAgent\\setup.log`. See [Windows installation and troubleshooting](docs/WINDOWS-INSTALL-RU.md).
+
+
+### Очистка удалённых серверов
+
+В панели **Все системы → открыть карточку → Удалить устройство**. Только администратор, с подтверждением. Запись удаляется из локального хранилища, а прежний ID блокируется от повторного автодобавления. Восстановление подключения описано в [руководстве по агентам](docs/AGENT-RU.md).

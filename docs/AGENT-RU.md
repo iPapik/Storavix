@@ -117,3 +117,26 @@ For a Windows Server that cannot resolve release-assets.githubusercontent.com, d
 - StoravixAgent-Setup-windows-amd64.exe: graphical Inno Setup wizard followed by connection configuration.
 
 The wizard saves token/URL under restricted ProgramData and keeps agent identity on reinstall.
+
+
+## Удаление старого устройства из панели (v0.2.6)
+
+Войди в Storavix под администратором, открой **Все системы**, выбери сервер, нажми **Удалить устройство**, подтверди. Запись исчезнет с панели и не появится снова с прежним ID, даже если старый агент продолжает отправлять данные. Это не удаляет установленный агент с компьютера.
+
+Чтобы **осознанно вернуть удалённый сервер**, останови агент на целевой ОС, удали только файл `agent.id` из каталога данных, затем снова запусти агент. Его токен и адрес сервера оставь без изменений.
+
+**Linux:**
+```bash
+sudo systemctl stop storavix-agent
+sudo rm -f /var/lib/storavix-agent/agent.id
+sudo systemctl start storavix-agent
+```
+
+**Windows (PowerShell администратора):**
+```powershell
+Stop-ScheduledTask -TaskName StoravixAgent
+Remove-Item -LiteralPath "$env:ProgramData\StoravixAgent\agent.id" -Force -ErrorAction SilentlyContinue
+Start-ScheduledTask -TaskName StoravixAgent
+```
+
+Если сервер навсегда выведен из эксплуатации, агент на нём нужно отдельно остановить или удалить; удаление карточки не выключает программу на удалённом сервере.
