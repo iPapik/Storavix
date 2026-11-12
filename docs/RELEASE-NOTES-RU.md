@@ -1,10 +1,8 @@
-# Storavix v0.2.2 — Windows Agent installer fix and host layouts
+# Storavix v0.2.3 — Windows agent installer hotfix
 
-- Fixed Windows PowerShell 5.1 parsing failures from UTF-8 without BOM. Both agent installer scripts use ASCII-only prompts/status.
-- Added one-command agent updates: `sudo storavix-agent-update` (Linux) and `storavix-agent-update` (Windows in a new elevated terminal).
-- Reuse existing agent token, server URL and persistent identity during updates.
-- Windows agent setup backs up the previous binary and attempts to restore it on startup failure.
-- Enlarged host cards and added 2-column, 3-column, 4-column and list layouts with browser-side persistence.
-- Release includes agent/server binaries for Windows and Linux, AMD64/ARM64, with SHA256SUMS.
+- Fix PowerShell 5.1 online installer crash: RuntimeInformation.OSArchitecture may be null on older .NET Framework versions.
+- Detect native CPU architecture from PROCESSOR_ARCHITEW6432 / PROCESSOR_ARCHITECTURE with CIM fallback (AMD64, ARM64).
+- Test architecture detection using actual Windows PowerShell 5.1 in GitHub Actions, in addition to parser checks.
+- No agent token or server data migration is required. Users can rerun the same PowerShell online installation command.
 
-**Note:** The agent EXE is a background worker, not a GUI installer. Hardware RAID/SMART are still not fully implemented. Unsigned binaries may trigger SmartScreen; HTTPS is recommended.
+Other agent collection features and dashboard functions are unchanged from v0.2.2.

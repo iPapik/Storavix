@@ -92,3 +92,18 @@ storavix-agent-update
 ```
 
 Обе команды загружают последний опубликованный Release и сохраняют прежние токен, URL и ID агента. EXE сам по себе **не является интерактивным установщиком**: он запускается как фоновая задача `StoravixAgent`.
+
+
+## Исправление v0.2.3: ошибка RuntimeInformation на Windows
+
+В некоторых версиях Windows PowerShell 5.1 свойство `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture` возвращало `null`, поэтому онлайн-установка завершалась ошибкой `InvokeMethodOnNull`. Загрузчик v0.2.3 использует переменные окружения Windows и CIM-резервный метод, не требуя нового PowerShell.
+
+В PowerShell администратора повтори установку, чтобы заново скачать **обновлённый скрипт из main**:
+
+```powershell
+$p=Join-Path $env:TEMP 'storavix-agent-install.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/install-agent-online-windows.ps1' -OutFile $p -UseBasicParsing
+& $p
+```
+
+Для проверки архитектуры до установки можно запустить `& $p -ArchitectureOnly`: ожидается `amd64` или `arm64`. Сохранённые URL, токен и ID агента при повторной установке не стираются.

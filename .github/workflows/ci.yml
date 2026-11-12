@@ -39,6 +39,12 @@ jobs:
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Host; throw "PowerShell 5.1 parser failed: $path" }
             Write-Host "PS5.1 parse passed: $path"
           }
+      - name: Exercise Windows native architecture detection with PowerShell 5.1
+        shell: powershell
+        run: |
+          $arch = & ./scripts/install-agent-online-windows.ps1 -ArchitectureOnly
+          if ($arch -ne 'amd64') { throw "Expected amd64 on windows-latest; got '$arch'" }
+          Write-Host "Native architecture detection passed: $arch"
       - name: Validate Linux scripts
         run: bash -n scripts/*.sh
   cross-build:

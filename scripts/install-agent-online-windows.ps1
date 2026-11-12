@@ -1,10 +1,35 @@
 # Storavix Agent: Windows PowerShell 5.1+ ASCII-compatible online installer.
+param([switch]$ArchitectureOnly)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
+# Do not use RuntimeInformation.OSArchitecture: it can be null on Windows PowerShell 5.1 / older .NET Framework.
+# PROCESSOR_ARCHITEW6432 reports native architecture when running a 32-bit PowerShell process on 64-bit Windows.
+function Get-StoravixAgentArchitecture {
+  $nativeArch=$env:PROCESSOR_ARCHITEW6432
+  if([string]::IsNullOrWhiteSpace($nativeArch)){$nativeArch=$env:PROCESSOR_ARCHITECTURE}
+  switch ($nativeArch) {
+    'AMD64' {return 'amd64'}
+    'ARM64' {return 'arm64'}
+    'X64' {return 'amd64'}
+  }
+  # Fall back to the actual operating-system processor, not the PowerShell process architecture.
+  try {
+    $cpu=Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop | Select-Object -First 1
+    if($null -ne $cpu) {
+      switch ([int]$cpu.Architecture) {
+        9 {return 'amd64'}
+        12 {return 'arm64'}
+      }
+    }
+  } catch {
+    # A WMI/CIM failure must not mask the underlying unsupported-architecture error.
+  }
+  throw "Unsupported Windows architecture (PROCESSOR_ARCHITECTURE=$nativeArch). Supported: AMD64, ARM64."
+}
+$arch=Get-StoravixAgentArchitecture
+if($ArchitectureOnly){Write-Output $arch; return}
 $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if(-not $admin){throw 'Run PowerShell as Administrator.'}
-$arch=[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToUpperInvariant()
-if($arch -eq 'AMD64'){$arch='amd64'} elseif($arch -eq 'ARM64'){$arch='arm64'} else{throw "Unsupported architecture $arch"}
 $base='https://github.com/iPapik/Storavix/releases/latest/download'
 if($env:STORAVIX_RELEASE_TAG){
   if($env:STORAVIX_RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$'){throw 'Invalid release version'}
