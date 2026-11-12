@@ -107,3 +107,13 @@ Invoke-WebRequest 'https://raw.githubusercontent.com/iPapik/Storavix/main/script
 ```
 
 Для проверки архитектуры до установки можно запустить `& $p -ArchitectureOnly`: ожидается `amd64` или `arm64`. Сохранённые URL, токен и ID агента при повторной установке не стираются.
+
+
+## Windows MSI / EXE offline (v0.2.4)
+
+For a Windows Server that cannot resolve release-assets.githubusercontent.com, download the complete offline installer on another PC and transfer it over SMB/RDP/USB. Both contain the agent itself and require no Go, Docker or GitHub connection on the monitored host. See [Windows installation guide](WINDOWS-INSTALL-RU.md).
+
+- StoravixAgent-windows-amd64.msi: standard MSI; after installation launch Storavix Agent / Configure Storavix Agent from the Start menu. Silent /qn installs do not launch the interactive wizard.
+- StoravixAgent-Setup-windows-amd64.exe: graphical Inno Setup wizard followed by connection configuration.
+
+The wizard saves token/URL under restricted ProgramData and keeps agent identity on reinstall.

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.4" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer Storavix Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Storavix Agent" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="StoravixMenu" Name="Storavix Agent" />
+    </StandardDirectory>
+    <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="B535F297-F5A1-4995-8322-8730AE1A6D38">
+        <File Id="AgentExe" Source="$(var.AgentExe)" KeyPath="yes" />
+      </Component>
+      <Component Id="WizardScriptComponent" Guid="05F43785-061A-4224-8F97-4AC083FDE43E">
+        <File Id="WizardScript" Source="$(var.SourceRoot)/scripts/configure-agent-windows.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="WizardCmdComponent" Guid="E1A474C4-D45E-4F93-9C33-28B850C4F1E7">
+        <File Id="WizardCmd" Source="$(var.SourceRoot)/scripts/configure-agent.cmd" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="AgentShortcuts" Directory="StoravixMenu">
+      <Component Id="ConfigureShortcutComponent" Guid="182AC1F4-0149-4AE5-A1D1-32B316019C46">
+        <Shortcut Id="ConfigureAgentShortcut" Name="Configure Storavix Agent" Target="[INSTALLFOLDER]configure-agent.cmd" WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKLM" Key="Software\Storavix\Agent" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    <Feature Id="Complete" Title="Storavix Agent" Level="1">
+      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentGroupRef Id="AgentShortcuts" />
+    </Feature>
+    <ui:WixUI Id="WixUI_Minimal" />
+  </Package>
+</Wix>

@@ -21,7 +21,7 @@ jobs:
         run: |
           python3 - <<'PYCI'
           from pathlib import Path
-          for name in ('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1'):
+          for name in ('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1'):
               if any(b > 127 for b in Path(name).read_bytes()):
                   raise SystemExit(f'{name}: invalid source encoding for Windows PowerShell 5.1')
           PYCI
@@ -32,7 +32,7 @@ jobs:
       - name: Parse with Windows PowerShell 5.1
         shell: powershell
         run: |
-          foreach ($path in @('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1')) {
+          foreach ($path in @('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1')) {
             $tokens = $null
             $errors = $null
             $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path, [ref]$tokens, [ref]$errors)
@@ -76,12 +76,74 @@ jobs:
           name: storavix-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
 
+  windows-installers:
+    needs: [test, powershell51-parser]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build bundled Windows x64 agent
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build, dist | Out-Null
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -trimpath -ldflags="-s -w" -o build/storavix-agent.exe ./cmd/storavix-agent
+          if ($LASTEXITCODE -ne 0) { throw 'Agent compilation failed.' }
+      - name: Build self-contained MSI with WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path .\wix-tools wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX setup failed.' }
+          .\wix-tools\wix.exe extension add -g WixToolset.UI.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX UI extension setup failed.' }
+          $root = (Get-Location).Path
+          .\wix-tools\wix.exe build installer/windows/StoravixAgent.wxs -arch x64 -ext WixToolset.UI.wixext -d "AgentExe=$root\build\storavix-agent.exe" -d "SourceRoot=$root" -o dist/StoravixAgent-windows-amd64.msi
+          if ($LASTEXITCODE -ne 0) { throw 'MSI build failed.' }
+      - name: Build offline Setup EXE with Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup setup failed.' }
+          }
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe was not found after installation.' }
+          $root = (Get-Location).Path
+          & $iscc "/DSourceRoot=$root" installer/windows/StoravixAgent.iss
+          if ($LASTEXITCODE -ne 0) { throw 'EXE build failed.' }
+      - name: Validate both offline installers
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path 'dist/StoravixAgent-windows-amd64.msi').Path
+          $exe = (Resolve-Path 'dist/StoravixAgent-Setup-windows-amd64.exe').Path
+          if ((Get-Item $msi).Length -lt 100000) { throw 'MSI is unexpectedly small.' }
+          if ((Get-Item $exe).Length -lt 100000) { throw 'EXE is unexpectedly small.' }
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', ('"' + $msi + '"'), '/qn', '/norestart', '/l*v', 'msi-install.log')
+          if ($p.ExitCode -notin @(0,3010)) { Get-Content 'msi-install.log' -Tail 100; throw "MSI smoke test failed: $($p.ExitCode)" }
+          $agentInstallDir = Join-Path $env:ProgramFiles 'Storavix Agent'
+          if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'MSI did not install the agent EXE.' }
+          if (-not (Test-Path (Join-Path $agentInstallDir 'configure-agent-windows.ps1'))) { throw 'MSI did not install configuration wizard.' }
+          $u = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', ('"' + $msi + '"'), '/qn', '/norestart')
+          if ($u.ExitCode -notin @(0,3010)) { throw "MSI uninstall test failed: $($u.ExitCode)" }
+          $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
+          if ($p.ExitCode -ne 0) { throw "EXE smoke test failed: $($p.ExitCode)" }
+          if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'EXE did not install the agent.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storavix-windows-installers
+          path: |
+            dist/StoravixAgent-windows-amd64.msi
+            dist/StoravixAgent-Setup-windows-amd64.exe
   release:
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-release]')) ||
       github.event_name == 'workflow_dispatch'
-    needs: [test, powershell51-parser, cross-build]
+    needs: [test, powershell51-parser, cross-build, windows-installers]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,6 +180,16 @@ jobs:
             rm -rf "$stage"
           done
           (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
+      - name: Retrieve Windows MSI and EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: storavix-windows-installers
+          path: dist
+      - name: Append Windows installer SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum StoravixAgent-windows-amd64.msi StoravixAgent-Setup-windows-amd64.exe >> SHA256SUMS)
       - name: Publish GitHub Release
         shell: bash
         env:

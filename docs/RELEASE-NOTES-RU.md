@@ -1,8 +1,11 @@
-# Storavix v0.2.3 — Windows agent installer hotfix
+# Storavix v0.2.4 — offline Windows agent installers
 
-- Fix PowerShell 5.1 online installer crash: RuntimeInformation.OSArchitecture may be null on older .NET Framework versions.
-- Detect native CPU architecture from PROCESSOR_ARCHITEW6432 / PROCESSOR_ARCHITECTURE with CIM fallback (AMD64, ARM64).
-- Test architecture detection using actual Windows PowerShell 5.1 in GitHub Actions, in addition to parser checks.
-- No agent token or server data migration is required. Users can rerun the same PowerShell online installation command.
+- Added an actual offline Windows MSI for the Storavix Agent.
+- Added a self-contained Setup EXE built with Inno Setup.
+- Both packages bundle the Windows x64 agent and a graphical connection wizard (URL and registration token).
+- EXE may launch the connection wizard after installation. MSI provides a Start Menu shortcut and supports silent deployment with msiexec /qn.
+- Keeps token, agent ID and server settings in ProgramData on reinstall.
+- CI builds, smoke-installs and publishes both packages with SHA256SUMS.
+- Works on servers that cannot download GitHub Release assets: transfer installer files from another PC.
 
-Other agent collection features and dashboard functions are unchanged from v0.2.2.
+MSI silent installation deploys files but must be configured separately with the wizard. Installers are not Authenticode signed. Windows x64 only.
