@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.4" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
+  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.5" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
     <MajorUpgrade DowngradeErrorMessage="A newer Storavix Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -31,6 +31,15 @@
       <ComponentGroupRef Id="AgentFiles" />
       <ComponentGroupRef Id="AgentShortcuts" />
     </Feature>
-    <ui:WixUI Id="WixUI_Minimal" />
+    <!-- The configuration wizard is launched from Finish for interactive MSI installations.
+         Silent/GPO installs deliberately skip the wizard; secure provisioning must be done separately. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Configure and start Storavix Agent" />
+    <Property Id="WixShellExecTarget" Value="[#WizardCmd]" />
+    <CustomAction Id="LaunchConfiguration" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchConfiguration" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
   </Package>
 </Wix>

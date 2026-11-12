@@ -99,9 +99,10 @@ jobs:
           dotnet tool install --tool-path .\wix-tools wix --version 5.0.2
           if ($LASTEXITCODE -ne 0) { throw 'WiX setup failed.' }
           .\wix-tools\wix.exe extension add -g WixToolset.UI.wixext/5.0.2
+          .\wix-tools\wix.exe extension add -g WixToolset.Util.wixext/5.0.2
           if ($LASTEXITCODE -ne 0) { throw 'WiX UI extension setup failed.' }
           $root = (Get-Location).Path
-          .\wix-tools\wix.exe build installer/windows/StoravixAgent.wxs -arch x64 -ext WixToolset.UI.wixext -d "AgentExe=$root\build\storavix-agent.exe" -d "SourceRoot=$root" -o dist/StoravixAgent-windows-amd64.msi
+          .\wix-tools\wix.exe build installer/windows/StoravixAgent.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d "AgentExe=$root\build\storavix-agent.exe" -d "SourceRoot=$root" -o dist/StoravixAgent-windows-amd64.msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI build failed.' }
       - name: Build offline Setup EXE with Inno Setup
         shell: pwsh
@@ -127,11 +128,40 @@ jobs:
           $agentInstallDir = Join-Path $env:ProgramFiles 'Storavix Agent'
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'MSI did not install the agent EXE.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'configure-agent-windows.ps1'))) { throw 'MSI did not install configuration wizard.' }
+
+          # Configuration smoke test: the old CI only checked extracted files, not a working agent.
+          $tokenFile = Join-Path $env:RUNNER_TEMP 'storavix-test-token.txt'
+          [System.IO.File]::WriteAllText($tokenFile, ('a' * 64))
+          $wizard = Join-Path $agentInstallDir 'configure-agent-windows.ps1'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503' -RegistrationTokenFile $tokenFile
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content (Join-Path $env:ProgramData 'StoravixAgent/setup.log') -Tail 40 -ErrorAction SilentlyContinue
+            throw "MSI installed files but agent configuration did not succeed"
+          }
+          $task = Get-ScheduledTask -TaskName 'StoravixAgent' -ErrorAction Stop
+          if ($task.State -ne 'Running') { throw "MSI agent task state: $($task.State)" }
+          if (-not (Test-Path (Join-Path $env:ProgramData 'StoravixAgent/token'))) { throw 'Agent token was not stored.' }
+          $idPath = Join-Path $env:ProgramData 'StoravixAgent/agent.id'
+          for ($i = 0; $i -lt 15 -and -not (Test-Path $idPath); $i++) { Start-Sleep -Seconds 1 }
+          if (-not (Test-Path $idPath)) { throw 'Agent process did not create its identity file' }
+          Write-Host 'MSI -> configure -> registered task -> agent process: PASS'
+          Stop-ScheduledTask -TaskName StoravixAgent -ErrorAction SilentlyContinue
+          Unregister-ScheduledTask -TaskName StoravixAgent -Confirm:$false -ErrorAction SilentlyContinue
           $u = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', ('"' + $msi + '"'), '/qn', '/norestart')
           if ($u.ExitCode -notin @(0,3010)) { throw "MSI uninstall test failed: $($u.ExitCode)" }
           $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
           if ($p.ExitCode -ne 0) { throw "EXE smoke test failed: $($p.ExitCode)" }
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'EXE did not install the agent.' }
+          # The EXE includes the same offline wizard; validate it end-to-end after silent extraction.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503' -RegistrationTokenFile $tokenFile
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content (Join-Path $env:ProgramData 'StoravixAgent/setup.log') -Tail 40 -ErrorAction SilentlyContinue
+            throw 'EXE agent registration failed'
+          }
+          $task = Get-ScheduledTask -TaskName 'StoravixAgent' -ErrorAction Stop
+          if ($task.State -ne 'Running') { throw "EXE task not running: $($task.State)" }
+          Write-Host 'EXE -> configure -> registered task -> agent running: PASS'
+
       - uses: actions/upload-artifact@v4
         with:
           name: storavix-windows-installers

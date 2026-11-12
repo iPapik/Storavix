@@ -115,6 +115,11 @@ curl -fsSL https://raw.githubusercontent.com/iPapik/Storavix/main/scripts/instal
 Обновление после установки: `sudo storavix-agent-update` (Linux), `storavix-agent-update` (новый PowerShell/CMD от администратора, Windows). В Windows новая версия исправляет проблему UTF-8 без BOM, которая приводила к ошибкам PowerShell 5.1. Подробнее: [инструкция по агентам](docs/AGENT-RU.md).
 
 
-### Offline Windows installers (v0.2.4)
+### Offline Windows installers (v0.2.5)
 
 Windows x64 MSI and Setup EXE in [Releases](https://github.com/iPapik/Storavix/releases). See [Windows agent installation](docs/WINDOWS-INSTALL-RU.md).
+
+
+## Windows Agent MSI / EXE (v0.2.5)
+
+Autonomous installers are distributed as GitHub Release assets. The agent is not considered installed until the `StoravixAgent` task is created and running. MSI offers to open the offline configuration wizard after installation, and EXE runs the wizard during installation. Setup errors appear in a message box and in `C:\\ProgramData\\StoravixAgent\\setup.log`. See [Windows installation and troubleshooting](docs/WINDOWS-INSTALL-RU.md).

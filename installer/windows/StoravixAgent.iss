@@ -1,4 +1,4 @@
-#define AppVersion "0.2.4"
+#define AppVersion "0.2.5"
 #ifndef SourceRoot
 #define SourceRoot "..\.."
 #endif
@@ -29,7 +29,9 @@ Source: "{#SourceRoot}\scripts\configure-agent.cmd"; DestDir: "{app}"; Flags: ig
 Name: "{group}\Configure Storavix Agent"; Filename: "{app}\configure-agent.cmd"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\configure-agent-windows.ps1"""; Description: "Configure and start Storavix Agent"; Flags: postinstall skipifsilent runascurrentuser
+; Launch the connection wizard during a normal interactive installation.
+; In silent mode the operator must provision the token via a protected file, never MSI public properties.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\configure-agent-windows.ps1"""; Description: "Configure and start Storavix Agent"; Flags: skipifsilent runascurrentuser waituntilterminated
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN StoravixAgent"; Flags: runhidden
@@ -40,7 +42,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  // Stop an existing agent to permit a binary replacement.
+  // Stop an existing agent to permit an in-place binary replacement.
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN StoravixAgent', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
   Result := '';

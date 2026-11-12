@@ -1,11 +1,14 @@
-# Storavix v0.2.4 — offline Windows agent installers
+# Storavix v0.2.5 — исправление автономной установки агентов Windows
 
-- Added an actual offline Windows MSI for the Storavix Agent.
-- Added a self-contained Setup EXE built with Inno Setup.
-- Both packages bundle the Windows x64 agent and a graphical connection wizard (URL and registration token).
-- EXE may launch the connection wizard after installation. MSI provides a Start Menu shortcut and supports silent deployment with msiexec /qn.
-- Keeps token, agent ID and server settings in ProgramData on reinstall.
-- CI builds, smoke-installs and publishes both packages with SHA256SUMS.
-- Works on servers that cannot download GitHub Release assets: transfer installer files from another PC.
+Исправлен процесс первоначального подключения после MSI и EXE. Ранее CI подтверждал только распаковку файлов, а не регистрацию задачи `StoravixAgent` — поэтому установка могла выглядеть успешной, хотя агент не запускался.
 
-MSI silent installation deploys files but must be configured separately with the wizard. Installers are not Authenticode signed. Windows x64 only.
+- MSI предлагает запустить мастер подключения после установки (интерактивная установка); пункт в меню «Пуск» сохранён.
+- EXE запускает мастер после установки. В тихом режиме окно не открывается — требуется безопасная отдельная конфигурация.
+- Мастер теперь регистрирует задачу, проверяет состояние `Running`, показывает результат, а ошибки сохраняет в `C:\ProgramData\StoravixAgent\setup.log` и выводит на экран.
+- Предусмотрен консольный режим настройки без передачи токена в списке параметров процесса: `-Console -ServerUrl http://server:8080 -RegistrationTokenFile C:\secure\token.txt`.
+- GitHub Actions проверяет не только наличие EXE, но и фактический запуск запланированной задачи, сохранённые параметры и создание ID агента после установки MSI и EXE.
+- Данные подключения и идентификатор агента в `ProgramData` сохраняются при обновлении.
+
+**Важно:** MSI и EXE содержат готовый Windows x64 агент и не требуют доступа к GitHub на конечном сервере. На сервере с ошибкой DNS `release-assets.githubusercontent.com` скачивайте файл на другом ПК и копируйте по SMB или RDP.
+
+**Тихая установка / GPO:** `msiexec /i StoravixAgent-windows-amd64.msi /qn /norestart` устанавливает файлы без интерактивной настройки токена. Для работы потребуется отдельный безопасный этап конфигурирования.

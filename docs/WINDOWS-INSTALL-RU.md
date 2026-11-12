@@ -1,50 +1,84 @@
-# Storavix Agent для Windows Server: автономные MSI и EXE
+# Установка Storavix Agent на Windows Server (v0.2.5)
 
-Начиная с v0.2.4 сборка выпускает **два автономных установщика для Windows x64**:
+**Для работающего агента нужно не только установить файлы, но и настроить подключение.** После ввода URL и токена обязательно должно появиться сообщение **Storavix Agent is running**, а в Планировщике заданий — задача `StoravixAgent` со статусом `Running`.
 
-- `StoravixAgent-windows-amd64.msi` — Windows Installer, для ручной установки или программной раскатки через GPO.
-- `StoravixAgent-Setup-windows-amd64.exe` — графический установщик с мастером первичной настройки.
+## 1. Скачать автономный EXE или MSI
 
-Все необходимые исполняемые файлы агента уже внутри пакета. На конечном сервере **не требуются Go, Docker или доступ к GitHub**. Скачайте файл с другого ПК, если Windows Server не может разрешить `release-assets.githubusercontent.com`, и скопируйте по SMB, RDP или на USB-носителе.
+Откройте https://github.com/iPapik/Storavix/releases/latest на ПК с доступом в интернет и скачайте **один** из файлов:
 
-## Первое подключение
+- `StoravixAgent-Setup-windows-amd64.exe` — обычный установщик с мастером.
+- `StoravixAgent-windows-amd64.msi` — MSI для ручной установки или GPO.
 
-1. На центральном сервере Storavix получите токен:
-   `sudo runuser -u storavix -- /usr/local/bin/storavix agent-token --data-dir /var/lib/storavix`
-2. Скопируйте MSI или EXE на контролируемый Windows Server.
-3. **EXE:** запустите файл от имени администратора, завершите мастер, поставьте галочку *Configure and start Storavix Agent*. Откроется окно для ввода URL центрального сервера и регистрационного токена.
-4. **MSI:** откройте файл, пройдите мастер Windows Installer, затем выберите в меню «Пуск» пункт **Storavix Agent → Configure Storavix Agent**. Введите URL и токен.
-5. Разрешите исходящее соединение к центральному Storavix по его HTTPS-порту (или HTTP 8080 только в изолированной доверенной сети).
-6. Откройте панель Storavix → **Все системы**; через 30–60 секунд после успешного подключения появится новое устройство.
+Сверьте SHA-256 с `SHA256SUMS` из того же релиза. Перенесите файл на Windows Server через SMB, RDP либо USB. На конечном сервере **не нужен доступ к GitHub, Go или Docker**.
 
-URL указывают с протоколом и портом, например `https://storavix.example.local` или `http://192.168.111.130:8080`.
+## 2. Получить токен
 
-Пароль и токен не передавайте в открытых командных строках. Мастер ввода скрывает токен и сохраняет его в `C:\ProgramData\StoravixAgent\token` с доступом только для SYSTEM и Administrators. При повторной настройке поле токена можно оставить пустым, чтобы сохранить текущий токен. Идентификатор агента при переустановке сохраняется.
+На центральном сервере Linux Storavix:
 
-## Развёртывание MSI
-
-Установить MSI без интерфейса можно так:
-
-```powershell
-msiexec.exe /i "C:\Install\StoravixAgent-windows-amd64.msi" /qn /norestart
+```bash
+sudo runuser -u storavix -- /usr/local/bin/storavix agent-token --data-dir /var/lib/storavix
 ```
 
-Важно: тихая установка MSI раскладывает файлы, но **не может спросить токен в интерактивном окне**. На первом запуске запустите `C:\Program Files\Storavix Agent\configure-agent.cmd` с правами администратора и введите URL и токен. Для массового развёртывания автоматизированное конфигурирование через защищённые файлы/Ansible/GPO будет добавлено отдельным этапом; не передавайте токены в свойствах MSI, доступных журналам и списку процессов.
+Храните выданный токен в секрете. На сервере с HTTP он передаётся без TLS, поэтому используйте HTTPS либо доверенную изолированную сеть.
 
-## Проверка работы
+## 3A. Установка EXE
+
+1. Запустите `StoravixAgent-Setup-windows-amd64.exe` от имени администратора.
+2. Пройдите мастер. После установки откроется **Storavix Agent - Initial configuration**.
+3. Укажите URL с протоколом и портом, например `http://192.168.111.130:8080`.
+4. Введите регистрационный токен.
+5. Нажмите **Save and start** и дождитесь сообщения **Storavix Agent is running**.
+
+## 3B. Установка MSI
+
+1. Запустите `StoravixAgent-windows-amd64.msi` от имени администратора.
+2. На последнем экране оставьте включённым пункт **Configure and start Storavix Agent** и завершите мастер.
+3. Введите URL и токен; дождитесь подтверждения запуска задачи.
+4. Если мастер не открылся, запустите из меню «Пуск» **Storavix Agent → Configure Storavix Agent** либо:
 
 ```powershell
-Get-ScheduledTask -TaskName StoravixAgent
-Get-ScheduledTaskInfo -TaskName StoravixAgent
+& "$env:ProgramFiles\Storavix Agent\configure-agent.cmd"
+```
+
+Если настройка завершилась ошибкой, она отображается во всплывающем окне и записывается в `C:\ProgramData\StoravixAgent\setup.log`.
+
+## 4. Проверка результата
+
+Откройте PowerShell администратора:
+
+```powershell
+Get-ScheduledTask -TaskName StoravixAgent | Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName StoravixAgent | Select-Object LastRunTime, LastTaskResult
+Get-Content "$env:ProgramData\StoravixAgent\setup.log" -Tail 40
 Test-NetConnection 192.168.111.130 -Port 8080
 ```
 
-Должно отображаться `Running`. Если задача отсутствует, запустите мастер конфигурации заново (с правами администратора).
+Задача должна находиться в состоянии `Running`. Через 30–60 секунд компьютер должен появиться в разделе **Все системы** центральной панели. Если в логе есть `ERROR`, сохраните его и сообщите диагностическое сообщение.
 
-## Обновление
+## 5. Восстановление уже установленного MSI (без переустановки)
 
-Для обновления автономно скачайте новый MSI/EXE с другого ПК, перенесите на сервер и запустите его. Старые URL, токен и идентификатор хранятся в `ProgramData` и при повторной настройке сохраняются. Не устанавливайте MSI и EXE одновременно на одном сервере: выберите один способ развёртывания.
+Если MSI установлен, но `StoravixAgent` отсутствует, запустите **от имени администратора**:
 
-Windows SmartScreen может предупреждать о неподписанном издателе: текущие сборки не подписаны сертификатом. Проверяйте SHA-256 по файлу `SHA256SUMS` из релиза.
+```powershell
+& "$env:ProgramFiles\Storavix Agent\configure-agent.cmd"
+```
 
-**Диагностика DNS:** ошибка `Unable to resolve host release-assets.githubusercontent.com` связана с DNS/proxy. Автономный MSI/EXE не требует доступа к этому домену после копирования файла на сервер.
+В новой версии ошибки сохраняются и показываются, вместо закрытия окна без объяснений.
+
+## 6. Тихая установка MSI / GPO
+
+```powershell
+msiexec /i "C:\Install\StoravixAgent-windows-amd64.msi" /qn /norestart /l*v "C:\Install\storavix-msi.log"
+```
+
+При `/qn` интерактивное окно не запускается, следовательно, для первой регистрации агента требуется отдельный защищённый этап настройки. Не указывайте токен в MSI-параметрах, в скриптах SYSVOL или открытых GPO. Альтернатива для заранее защищённого файла с токеном (пример под локальным администратором):
+
+```powershell
+& "$env:ProgramFiles\Storavix Agent\configure-agent-windows.ps1" -Console -ServerUrl "https://storavix.example.local" -RegistrationTokenFile "C:\Secure\storavix-agent-token.txt"
+```
+
+Файл с токеном должен быть доступен только администраторам и SYSTEM и удалён после настройки. Токен по умолчанию сохраняется в `C:\ProgramData\StoravixAgent\token` с ограниченным ACL.
+
+## 7. Обновление
+
+Скачайте новую версию с GitHub Releases на другом ПК, перенесите на сервер и запустите установщик **того же типа** (MSI или EXE). Конфигурация и ID агента лежат в `ProgramData`, поэтому сохраняются при обновлении.
