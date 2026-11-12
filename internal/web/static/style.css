@@ -74,3 +74,29 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 @media(max-width:1370px){.systems-grid.standard-layout,.systems-grid.compact-layout{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1080px){.systems-grid.large-layout,.systems-grid.standard-layout,.systems-grid.compact-layout{grid-template-columns:1fr}}
 @media(max-width:700px){.systems-grid{grid-template-columns:1fr!important}.systems-layout-select{flex:1;min-width:165px}.systems-grid.list-layout .system-metrics{display:block}.systems-actions{gap:7px}}
+
+/* v0.2.6 integrated brand and locally rendered vector icons */
+.ui-icon{width:19px;height:19px;display:inline-block;vertical-align:middle;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sidebar .nav-icon{width:20px;height:20px;color:#bcbec3}
+.sidebar nav button.active .ui-icon{color:#49c382}
+.system-icon{display:flex;align-items:center;justify-content:center}
+.system-icon .ui-icon{width:18px;height:18px}
+.stat-icon .ui-icon{width:22px;height:22px}
+.empty-icon .ui-icon{width:34px;height:34px}
+.generic-symbol .ui-icon{width:46px;height:46px}
+.sidebar{padding-top:12px}
+.sidebar .brand.brand-integrated{display:flex;min-height:98px;align-items:center;justify-content:center;margin:0 0 14px;padding:0 0 11px;background:none;border-bottom:1px solid #333}
+.brand-integrated img{mix-blend-mode:screen;filter:saturate(.94);border:0;box-shadow:none}
+.brand-integrated .sidebar-logo{width:166px;height:82px;margin:0;object-fit:contain}
+.login-brand.brand-integrated .login-logo{width:189px;height:130px;margin:0 auto}
+.sidebar-foot{color:#aaa;padding:18px 8px 5px}
+.sidebar-foot small{display:block;margin:0;color:#aaa;font-size:12px}
+.sidebar-foot .opensource{margin-top:8px;color:#777;font-size:10px}
+.secondary .ui-icon{width:16px;height:16px;margin-right:5px}
+.detail-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-top:1px solid #3b3b3b;padding-top:17px;margin-top:24px}
+.detail-actions p{font-size:12px;max-width:350px;line-height:1.5}
+.danger-button{display:inline-flex;align-items:center;gap:7px;background:#3b2323;border:1px solid #8b4848;color:#ffb9b9;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:650}
+.danger-button:hover{background:#573030;border-color:#d07474}
+.danger-button:disabled{opacity:.6}
+.danger-button .ui-icon{width:16px;height:16px}
+@media(max-width:700px){.brand-integrated .sidebar-logo{width:150px;height:72px}.sidebar .brand.brand-integrated{min-height:88px}}

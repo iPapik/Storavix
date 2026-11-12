@@ -124,12 +124,13 @@ try {
   if ($token -and $token -notmatch '^[a-fA-F0-9]{64}$') { throw 'Registration token must contain exactly 64 hexadecimal characters.' }
   if (-not $token -and -not $hasToken) { throw 'Agent token is required for the first installation.' }
   if ($parsed.Scheme -eq 'http') {
-    Write-SetupLog 'Warning: HTTP connection is unencrypted. For isolated trusted networks only.'
+    Write-SetupLog 'HTTP is unencrypted. This is a security warning, not a setup failure.'
     if ($usingGui) {
-      if ([System.Windows.Forms.MessageBox]::Show('HTTP sends the registration token without encryption. Continue only on a trusted isolated network.','Storavix Agent','YesNo','Warning') -ne [System.Windows.Forms.DialogResult]::Yes) { Write-SetupLog 'User declined HTTP connection.'; exit 2 }
+      if ([System.Windows.Forms.MessageBox]::Show('This is a security warning, not a setup error. HTTP sends the token unencrypted. On an isolated trusted LAN click Yes to continue; otherwise use HTTPS.','Storavix Agent','YesNo','Warning') -ne [System.Windows.Forms.DialogResult]::Yes) { Write-SetupLog 'User declined HTTP connection.'; exit 2 }
     }
   }
 
+  if ($parsed.Scheme -eq 'http') { Write-SetupLog 'HTTP warning acknowledged; continuing setup.' }
   if ($token) {
     $tmpToken=Join-Path $dataDir ('token.new.'+[guid]::NewGuid().ToString('N'))
     Set-Content -LiteralPath $tmpToken -Value $token -Encoding Ascii -NoNewline

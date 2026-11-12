@@ -1,14 +1,7 @@
-# Storavix v0.2.5 — исправление автономной установки агентов Windows
-
-Исправлен процесс первоначального подключения после MSI и EXE. Ранее CI подтверждал только распаковку файлов, а не регистрацию задачи `StoravixAgent` — поэтому установка могла выглядеть успешной, хотя агент не запускался.
-
-- MSI предлагает запустить мастер подключения после установки (интерактивная установка); пункт в меню «Пуск» сохранён.
-- EXE запускает мастер после установки. В тихом режиме окно не открывается — требуется безопасная отдельная конфигурация.
-- Мастер теперь регистрирует задачу, проверяет состояние `Running`, показывает результат, а ошибки сохраняет в `C:\ProgramData\StoravixAgent\setup.log` и выводит на экран.
-- Предусмотрен консольный режим настройки без передачи токена в списке параметров процесса: `-Console -ServerUrl http://server:8080 -RegistrationTokenFile C:\secure\token.txt`.
-- GitHub Actions проверяет не только наличие EXE, но и фактический запуск запланированной задачи, сохранённые параметры и создание ID агента после установки MSI и EXE.
-- Данные подключения и идентификатор агента в `ProgramData` сохраняются при обновлении.
-
-**Важно:** MSI и EXE содержат готовый Windows x64 агент и не требуют доступа к GitHub на конечном сервере. На сервере с ошибкой DNS `release-assets.githubusercontent.com` скачивайте файл на другом ПК и копируйте по SMB или RDP.
-
-**Тихая установка / GPO:** `msiexec /i StoravixAgent-windows-amd64.msi /qn /norestart` устанавливает файлы без интерактивной настройки токена. Для работы потребуется отдельный безопасный этап конфигурирования.
+# Storavix v0.2.6 — retired device deletion and UI redesign
+- Administrator can delete an obsolete system from its detail view with confirmation.
+- Deleted agent IDs are persisted to prevent reappearance from a still-running agent; older agents.json formats migrate automatically.
+- Offline SVG icons replace typographic glyphs throughout navigation, summary and system cards.
+- Removed "Рабочее пространство" and "Веб-сервер запущен". Original Storavix logo is visually blended into the black interface.
+- HTTP setup warning is clarified: warning, not an installation failure. HTTPS remains recommended.
+- Added server unit tests for deletion and data migration; added JavaScript syntax CI check.

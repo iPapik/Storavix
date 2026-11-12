@@ -17,6 +17,8 @@ jobs:
         run: go test -race ./...
       - name: Go vet
         run: go vet ./...
+      - name: Browser JavaScript syntax
+        run: node --check internal/web/static/app.js
       - name: Windows PowerShell scripts must be ASCII safe for PS5.1
         run: |
           python3 - <<'PYCI'
