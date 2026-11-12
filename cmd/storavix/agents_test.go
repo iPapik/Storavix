@@ -90,3 +90,66 @@ func TestReportValidation(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestDeleteAgentRequiresAdminAndPersistsTombstone(t *testing.T) {
+	t.Setenv("STORAVIX_ADMIN_PASSWORD", "abcdefgh")
+	dir := t.TempDir()
+	s, err := newServer(dir)
+	if err != nil { t.Fatal(err) }
+	token, err := ensureAgentToken(dir)
+	if err != nil { t.Fatal(err) }
+	ts := httptest.NewServer(s.routes())
+	defer ts.Close()
+	id := "0123456789abcdef0123456789abcdef"
+	payload := `{"id":"` + id + `","hostname":"retired","os":"windows","version":"0.2.5"}`
+	post := func() int {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/agent/report", strings.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Storavix-Request", "1")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil { t.Fatal(err) }
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := post(); got != http.StatusAccepted { t.Fatalf("ingest: %d", got) }
+	remove := func(cookie, id string) int {
+		req, _ := http.NewRequest("DELETE", ts.URL+"/api/agents/"+id, nil)
+		req.Header.Set("X-Storavix-Request", "1")
+		if cookie != "" { req.AddCookie(&http.Cookie{Name:"storavix_session",Value:cookie}) }
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil { t.Fatal(err) }
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := remove("",id); got != 401 { t.Fatalf("unauth delete: %d",got) }
+	if len(s.agents)!=1 { t.Fatal("unauth delete changed data") }
+	s.mu.Lock()
+	s.sessions["testsession"]=time.Now().Add(time.Hour)
+	s.mu.Unlock()
+	if got:=remove("testsession","invalid");got!=400 {t.Fatalf("bad ID: %d",got)}
+	if got:=remove("testsession",id);got!=200 {t.Fatalf("delete: %d",got)}
+	if got:=remove("testsession",id);got!=404 {t.Fatalf("second delete: %d",got)}
+	if got:=post();got!=410 {t.Fatalf("re-registration: %d",got)}
+	if len(s.agents)!=0 {t.Fatal("deleted agent returned")}
+	reloaded,err:=newServer(dir)
+	if err!=nil {t.Fatal(err)}
+	if len(reloaded.agents)!=0 || !reloaded.deletedAgents[id] {t.Fatal("tombstone did not survive restart")}
+	if _,err:=os.Stat(filepath.Join(dir,"agents.json"));err!=nil {t.Fatal(err)}
+}
+
+func TestLegacyAgentDataMigratesWithoutLosingReports(t *testing.T) {
+	t.Setenv("STORAVIX_ADMIN_PASSWORD", "abcdefgh")
+	dir:=t.TempDir()
+	id:="0123456789abcdef0123456789abcdef"
+	legacy:=`{"`+id+`":{"id":"`+id+`","hostname":"legacy","os":"linux","version":"0.2.0"}}`
+	if err:=os.WriteFile(filepath.Join(dir,"agents.json"),[]byte(legacy),0600);err!=nil {t.Fatal(err)}
+	s,err:=newServer(dir)
+	if err!=nil {t.Fatal(err)}
+	if len(s.agents)!=1 {t.Fatal("legacy reports lost")}
+	s.mu.Lock()
+	err=s.saveAgentsLocked()
+	s.mu.Unlock()
+	if err!=nil {t.Fatal(err)}
+	s2,err:=newServer(dir)
+	if err!=nil || len(s2.agents)!=1 {t.Fatal("migration failed",err)}
+}

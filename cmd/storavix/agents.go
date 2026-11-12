@@ -41,6 +41,13 @@ func ensureAgentToken(dir string) (string, error) {
 	}
 	return token, nil
 }
+// agentStore keeps deleted agent IDs excluded even if a retired agent still
+// sends telemetry using the shared registration token. Older agents.json files
+// containing only the map remain readable and are migrated on the next write.
+type agentStore struct {
+	Agents  map[string]telemetry.Report `json:"agents"`
+	Deleted map[string]bool             `json:"deleted,omitempty"`
+}
 func (s *server) loadAgents() error {
 	b, e := os.ReadFile(filepath.Join(s.dataDir, "agents.json"))
 	if errors.Is(e, os.ErrNotExist) {
@@ -49,16 +56,32 @@ func (s *server) loadAgents() error {
 	if e != nil {
 		return e
 	}
-	if e = json.Unmarshal(b, &s.agents); e != nil {
-		return e
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil {
+		return err
+	}
+	if _, hasEnvelope := fields["agents"]; hasEnvelope {
+		var store agentStore
+		if err := json.Unmarshal(b, &store); err != nil {
+			return err
+		}
+		s.agents, s.deletedAgents = store.Agents, store.Deleted
+	} else if err := json.Unmarshal(b, &s.agents); err != nil {
+		return err
 	}
 	if s.agents == nil {
 		s.agents = map[string]telemetry.Report{}
 	}
+	if s.deletedAgents == nil {
+		s.deletedAgents = map[string]bool{}
+	}
+	for id := range s.deletedAgents {
+		delete(s.agents, id)
+	}
 	return nil
 }
 func (s *server) saveAgentsLocked() error {
-	b, e := json.Marshal(s.agents)
+	b, e := json.Marshal(agentStore{Agents: s.agents, Deleted: s.deletedAgents})
 	if e != nil {
 		return e
 	}
@@ -100,6 +123,35 @@ func (s *server) getAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, records)
 }
+// deleteAgent removes a retired device and persists a tombstone, preventing
+// automatic reappearance from a still-running agent with the same identity.
+func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rawID, err := hex.DecodeString(id)
+	if err != nil || len(rawID) != 16 || id != strings.ToLower(id) {
+		problem(w, 400, "Неверный идентификатор устройства")
+		return
+	}
+	s.mu.Lock()
+	record, exists := s.agents[id]
+	if !exists {
+		s.mu.Unlock()
+		problem(w, 404, "Устройство не найдено")
+		return
+	}
+	delete(s.agents, id)
+	s.deletedAgents[id] = true
+	err = s.saveAgentsLocked()
+	if err != nil {
+		s.agents[id] = record
+		delete(s.deletedAgents, id)
+		s.mu.Unlock()
+		problem(w, 500, "Не удалось сохранить удаление")
+		return
+	}
+	s.mu.Unlock()
+	sendJSON(w, 200, map[string]string{"status": "deleted"})
+}
 func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 	h := r.Header.Get("Authorization")
 	if !strings.HasPrefix(h, "Bearer ") {
@@ -135,6 +187,11 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	report.ReceivedAt = time.Now().UTC()
 	s.mu.Lock()
+	if s.deletedAgents[report.ID] {
+		s.mu.Unlock()
+		problem(w, 410, "Устройство исключено администратором; для повторного подключения требуется новый ID агента")
+		return
+	}
 	if _, ok := s.agents[report.ID]; !ok && len(s.agents) >= telemetry.MaxReports {
 		s.mu.Unlock()
 		problem(w, 429, "host limit reached")

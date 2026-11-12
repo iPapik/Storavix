@@ -73,6 +73,7 @@ type server struct {
 	mailLast      time.Time
 	secureCookies bool
 	agents        map[string]telemetry.Report
+	deletedAgents map[string]bool
 }
 
 func main() {
@@ -136,7 +137,7 @@ func newServer(dir string) (*server, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}}
+	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}, deletedAgents: map[string]bool{}}
 	keyPath := filepath.Join(dir, "master.key")
 	if keyEnv := os.Getenv("STORAVIX_MASTER_KEY"); keyEnv != "" {
 		key, e := base64.StdEncoding.DecodeString(keyEnv)
@@ -305,6 +306,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/alerts/test", s.requireAuth(s.testAlert))
 	mux.HandleFunc("POST /api/account/password", s.requireAuth(s.changePassword))
 	mux.HandleFunc("GET /api/agents", s.requireAuth(s.getAgents))
+	mux.HandleFunc("DELETE /api/agents/{id}", s.requireAuth(s.deleteAgent))
 	mux.HandleFunc("POST /api/agent/report", s.ingestAgent)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
