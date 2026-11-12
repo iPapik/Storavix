@@ -134,7 +134,7 @@ try {
   # Always persist the origin without the trailing slash, so upgrades also heal old config.
   $url = $parsed.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/')
   Write-SetupLog ('Normalized server URL: '+$url)
-  if ($token -and $token -notmatch '^[a-fA-F0-9]{64} { throw 'Registration token must contain exactly 64 hexadecimal characters.' }
+  if ($token -and $token -notmatch '^[a-fA-F0-9]{64}$') { throw 'Registration token must contain exactly 64 hexadecimal characters.' }
   if (-not $token -and -not $hasToken) { throw 'Agent token is required for the first installation.' }
   if ($parsed.Scheme -eq 'http') {
     Write-SetupLog 'HTTP is unencrypted. This is a security warning, not a setup failure.'
