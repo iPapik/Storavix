@@ -17,6 +17,15 @@ jobs:
         run: go test -race ./...
       - name: Go vet
         run: go vet ./...
+      - name: Version consistency
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          v=Path('VERSION').read_text().strip().removeprefix('v')
+          assert f'const version = "{v}"' in Path('cmd/storavix/main.go').read_text()
+          assert f'const AgentVersion = "{v}"' in Path('internal/telemetry/telemetry.go').read_text()
+          print('Storavix version consistency:',v)
+          PY
       - name: Browser JavaScript syntax
         run: node --check internal/web/static/app.js
       - name: Windows PowerShell scripts must be ASCII safe for PS5.1
