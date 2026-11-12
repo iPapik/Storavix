@@ -32,7 +32,7 @@ jobs:
         run: |
           python3 - <<'PYCI'
           from pathlib import Path
-          for name in ('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1'):
+          for name in ('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1','scripts/diagnose-agent-windows.ps1'):
               if any(b > 127 for b in Path(name).read_bytes()):
                   raise SystemExit(f'{name}: invalid source encoding for Windows PowerShell 5.1')
           PYCI
@@ -43,7 +43,7 @@ jobs:
       - name: Parse with Windows PowerShell 5.1
         shell: powershell
         run: |
-          foreach ($path in @('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1')) {
+          foreach ($path in @('scripts/install-agent-online-windows.ps1', 'scripts/install-agent-windows.ps1', 'scripts/configure-agent-windows.ps1','scripts/diagnose-agent-windows.ps1')) {
             $tokens = $null
             $errors = $null
             $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path, [ref]$tokens, [ref]$errors)
@@ -139,6 +139,7 @@ jobs:
           $agentInstallDir = Join-Path $env:ProgramFiles 'Storavix Agent'
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'MSI did not install the agent EXE.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'configure-agent-windows.ps1'))) { throw 'MSI did not install configuration wizard.' }
+          if (-not (Test-Path (Join-Path $agentInstallDir 'diagnose-agent-windows.ps1'))) { throw 'MSI did not install diagnostics script.' }
 
           # Configuration smoke test: the old CI only checked extracted files, not a working agent.
           $tokenFile = Join-Path $env:RUNNER_TEMP 'storavix-test-token.txt'
@@ -155,6 +156,18 @@ jobs:
           $idPath = Join-Path $env:ProgramData 'StoravixAgent/agent.id'
           for ($i = 0; $i -lt 15 -and -not (Test-Path $idPath); $i++) { Start-Sleep -Seconds 1 }
           if (-not (Test-Path $idPath)) { throw 'Agent process did not create its identity file' }
+          $agentLog=Join-Path $env:ProgramData 'StoravixAgent/agent.log'
+          if (-not (Test-Path $agentLog)) { throw 'Agent process did not write diagnostics log' }
+          if (-not (Select-String -Path $agentLog -Pattern 'Storavix Agent starting' -Quiet)) { throw 'Agent startup log is missing' }
+          Write-Host 'Agent diagnostics:'
+          Get-Content $agentLog -Tail 5
+          # A fatal startup error must be captured in the log for administrators.
+          $badToken=Join-Path $env:RUNNER_TEMP 'storavix-bad-token.txt'
+          [IO.File]::WriteAllText($badToken, 'not-a-valid-token')
+          $badLog=Join-Path $env:RUNNER_TEMP 'storavix-bad-startup.log'
+          & (Join-Path $agentInstallDir 'storavix-agent.exe') --server 'http://127.0.0.1:65503' --allow-http --token-file $badToken --data-dir (Join-Path $env:RUNNER_TEMP 'storavix-bad-id') --log-file $badLog --once 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'Invalid token unexpectedly allowed' }
+          if (-not (Select-String -Path $badLog -Pattern 'invalid registration token length' -Quiet)) { throw 'Agent fatal diagnostics missing' }
           Write-Host 'MSI -> configure -> registered task -> agent process: PASS'
           Stop-ScheduledTask -TaskName StoravixAgent -ErrorAction SilentlyContinue
           Unregister-ScheduledTask -TaskName StoravixAgent -Confirm:$false -ErrorAction SilentlyContinue

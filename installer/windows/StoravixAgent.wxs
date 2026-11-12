@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.6" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
+  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.7" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
     <MajorUpgrade DowngradeErrorMessage="A newer Storavix Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -19,10 +19,17 @@
       <Component Id="WizardCmdComponent" Guid="E1A474C4-D45E-4F93-9C33-28B850C4F1E7">
         <File Id="WizardCmd" Source="$(var.SourceRoot)/scripts/configure-agent.cmd" KeyPath="yes" />
       </Component>
+      <Component Id="DiagnosticsScriptComponent" Guid="DDE1FBB5-B3D2-43F7-BEE4-8C6721CA393F">
+        <File Id="DiagnosticsScript" Source="$(var.SourceRoot)/scripts/diagnose-agent-windows.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="DiagnosticsCmdComponent" Guid="56849F60-3A0D-4EA8-A857-98961FA41B85">
+        <File Id="DiagnosticsCmd" Source="$(var.SourceRoot)/scripts/diagnose-agent.cmd" KeyPath="yes" />
+      </Component>
     </ComponentGroup>
     <ComponentGroup Id="AgentShortcuts" Directory="StoravixMenu">
       <Component Id="ConfigureShortcutComponent" Guid="182AC1F4-0149-4AE5-A1D1-32B316019C46">
         <Shortcut Id="ConfigureAgentShortcut" Name="Configure Storavix Agent" Target="[INSTALLFOLDER]configure-agent.cmd" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="DiagnoseAgentShortcut" Name="Diagnose Storavix Agent" Target="[INSTALLFOLDER]diagnose-agent.cmd" WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
         <RegistryValue Root="HKLM" Key="Software\Storavix\Agent" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
       </Component>

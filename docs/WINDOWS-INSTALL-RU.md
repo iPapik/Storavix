@@ -82,3 +82,18 @@ msiexec /i "C:\Install\StoravixAgent-windows-amd64.msi" /qn /norestart /l*v "C:\
 ## 7. Обновление
 
 Скачайте новую версию с GitHub Releases на другом ПК, перенесите на сервер и запустите установщик **того же типа** (MSI или EXE). Конфигурация и ID агента лежат в `ProgramData`, поэтому сохраняются при обновлении.
+
+
+## Windows Server: диагностика ошибки Task state=Ready / LastTaskResult=1 (v0.2.7)
+
+Это означает, что задача зарегистрировалась, но приложение завершилось с ошибкой. Новый агент записывает причину в `C:\ProgramData\StoravixAgent\agent.log`, включая ошибки доступа к токену, файлам идентификатора и параметрам запуска.
+
+Проверь в PowerShell администратора:
+
+```powershell
+& "$env:ProgramFiles\Storavix Agent\diagnose-agent-windows.ps1"
+Get-Content "$env:ProgramData\StoravixAgent\agent.log" -Tail 40
+Get-ScheduledTaskInfo -TaskName StoravixAgent | Select-Object LastRunTime,LastTaskResult
+```
+
+Если `agent.log` отсутствует даже после ручного запуска задачи, проверь AppLocker, Defender/EDR, Code Integrity и права выполнения `storavix-agent.exe` под SYSTEM. Не удаляй токен и идентификатор агента при обновлении.

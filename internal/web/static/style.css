@@ -100,3 +100,10 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .danger-button:disabled{opacity:.6}
 .danger-button .ui-icon{width:16px;height:16px}
 @media(max-width:700px){.brand-integrated .sidebar-logo{width:150px;height:72px}.sidebar .brand.brand-integrated{min-height:88px}}
+
+/* v0.2.7: new transparency-native Storavix vector identity */
+.brand-integrated img{mix-blend-mode:normal;filter:none;background:none;border:0;box-shadow:none}
+.brand-integrated .sidebar-logo{width:202px;height:58px;max-width:100%;object-fit:contain}
+.sidebar .brand.brand-integrated{min-height:83px;padding-bottom:10px}
+.login-brand.brand-integrated .login-logo{width:276px;height:74px;max-width:100%;object-fit:contain}
+@media(max-width:700px){.brand-integrated .sidebar-logo{width:185px;height:54px}}

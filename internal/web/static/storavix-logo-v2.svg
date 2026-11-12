@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 140" role="img" aria-label="Storavix">
+ <defs>
+  <linearGradient id="silver" x1="0" x2="0.5" y1="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.56" stop-color="#DAE0E4"/><stop offset="1" stop-color="#A4B3BB"/></linearGradient>
+  <linearGradient id="cyan" x1="0.2" x2="0.9" y1="0" y2="1"><stop offset="0" stop-color="#6BFFEF"/><stop offset="0.48" stop-color="#29D4DF"/><stop offset="1" stop-color="#159AB5"/></linearGradient>
+ </defs>
+ <path d="M105 19H52C27 19 11 34 11 55c0 18 14 29 36 29h19c12 0 17 3 17 9 0 8-6 12-20 12H12v17h53c27 0 43-12 43-33 0-19-13-29-37-29H51c-11 0-15-3-15-10 0-7 6-13 17-13h36l16-18Z" fill="url(#silver)"/>
+ <path d="m102 120 44-101 48 101h-26l-23-56-24 56Z" fill="url(#cyan)"/>
+ <path d="M145 102v18h12v-18ZM161 94v26h9V94Z" fill="#0E778F" opacity="0.9"/>
+ <text x="212" y="98" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="72" font-weight="750" letter-spacing="-3.7" fill="#F1F4F5">Stor<tspan fill="url(#cyan)">Avix</tspan></text>
+</svg>

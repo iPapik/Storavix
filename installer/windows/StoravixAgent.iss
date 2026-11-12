@@ -1,4 +1,4 @@
-#define AppVersion "0.2.6"
+#define AppVersion "0.2.7"
 #ifndef SourceRoot
 #define SourceRoot "..\.."
 #endif
@@ -24,9 +24,12 @@ WizardStyle=modern
 Source: "{#SourceRoot}\build\storavix-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\scripts\configure-agent-windows.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\scripts\configure-agent.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\scripts\diagnose-agent-windows.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\scripts\diagnose-agent.cmd"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Configure Storavix Agent"; Filename: "{app}\configure-agent.cmd"
+Name: "{group}\Diagnose Storavix Agent"; Filename: "{app}\diagnose-agent.cmd"
 
 [Run]
 ; Launch the connection wizard during a normal interactive installation.
