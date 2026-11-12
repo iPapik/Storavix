@@ -87,8 +87,32 @@ jobs:
           name: storavix-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
 
+  windows-legacy-build:
+    # Go 1.20 is the final Go toolchain supporting Windows Server 2012/2012 R2.
+    # Legacy builds are separate from supported modern Windows binaries.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.20.14'
+      - name: Build legacy Windows Server 2012 agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only the standalone agent and its internal packages are built with Go 1.20.
+          sed -i 's/^go 1.23$/go 1.20/' go.mod
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/storavix-agent-legacy-windows-amd64.exe ./cmd/storavix-agent
+          test -s dist/storavix-agent-legacy-windows-amd64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storavix-windows-legacy-agent
+          path: dist/storavix-agent-legacy-windows-amd64.exe
+
   windows-installers:
-    needs: [test, powershell51-parser]
+    needs: [test, powershell51-parser, windows-legacy-build]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +128,11 @@ jobs:
           $env:CGO_ENABLED = '0'
           go build -trimpath -ldflags="-s -w" -o build/storavix-agent.exe ./cmd/storavix-agent
           if ($LASTEXITCODE -ne 0) { throw 'Agent compilation failed.' }
+      - name: Download legacy agent
+        uses: actions/download-artifact@v4
+        with:
+          name: storavix-windows-legacy-agent
+          path: build
       - name: Build self-contained MSI with WiX
         shell: pwsh
         run: |
@@ -113,7 +142,7 @@ jobs:
           .\wix-tools\wix.exe extension add -g WixToolset.Util.wixext/5.0.2
           if ($LASTEXITCODE -ne 0) { throw 'WiX UI extension setup failed.' }
           $root = (Get-Location).Path
-          .\wix-tools\wix.exe build installer/windows/StoravixAgent.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d "AgentExe=$root\build\storavix-agent.exe" -d "SourceRoot=$root" -o dist/StoravixAgent-windows-amd64.msi
+          .\wix-tools\wix.exe build installer/windows/StoravixAgent.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d "AgentExe=$root\build\storavix-agent.exe" -d "LegacyAgentExe=$root\build\storavix-agent-legacy-windows-amd64.exe" -d "SourceRoot=$root" -o dist/StoravixAgent-windows-amd64.msi
           if ($LASTEXITCODE -ne 0) { throw 'MSI build failed.' }
       - name: Build offline Setup EXE with Inno Setup
         shell: pwsh
@@ -140,6 +169,7 @@ jobs:
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'MSI did not install the agent EXE.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'configure-agent-windows.ps1'))) { throw 'MSI did not install configuration wizard.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'diagnose-agent-windows.ps1'))) { throw 'MSI did not install diagnostics script.' }
+          if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent-legacy.exe'))) { throw 'MSI missing Windows Server 2012 compatibility binary.' }
 
           # Configuration smoke test: the old CI only checked extracted files, not a working agent.
           $tokenFile = Join-Path $env:RUNNER_TEMP 'storavix-test-token.txt'
@@ -176,6 +206,7 @@ jobs:
           $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
           if ($p.ExitCode -ne 0) { throw "EXE smoke test failed: $($p.ExitCode)" }
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'EXE did not install the agent.' }
+          if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent-legacy.exe'))) { throw 'EXE missing legacy agent.' }
           # The EXE includes the same offline wizard; validate it end-to-end after silent extraction.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503' -RegistrationTokenFile $tokenFile
           if ($LASTEXITCODE -ne 0) {

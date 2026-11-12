@@ -34,14 +34,22 @@ try {
   }
 
   $installDir = $PSScriptRoot
-  $binary = Join-Path $installDir 'storavix-agent.exe'
-  if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw ('Agent executable not found: ' + $binary) }
+  $windowsVersion = [Environment]::OSVersion.Version
+  $legacyOS = $windowsVersion.Major -lt 10
+  $binaryName = 'storavix-agent.exe'
+  if ($legacyOS) { $binaryName = 'storavix-agent-legacy.exe' }
+  $binary = Join-Path $installDir $binaryName
+  if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+    throw ('Compatible agent executable not found: '+$binary+'. Old Windows Server versions require the Storavix compatibility build.')
+  }
   $dataDir = Join-Path $env:ProgramData 'StoravixAgent'
   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
   & icacls.exe $dataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
   if ($LASTEXITCODE -ne 0) { throw ('Cannot set folder ACL: ' + $dataDir) }
   $script:logPath = Join-Path $dataDir 'setup.log'
   Write-SetupLog 'Configuration started.'
+  Write-SetupLog ('Operating system version: '+$windowsVersion+'; selected binary: '+$binaryName)
+  if ($legacyOS) { Write-SetupLog 'Legacy compatibility mode: compiled with unsupported Go 1.20 runtime. Restrict agent network access and upgrade the operating system when possible.' }
   $serverPath = Join-Path $dataDir 'server.txt'
   $tokenPath = Join-Path $dataDir 'token'
   $agentLogPath = Join-Path $dataDir 'agent.log'

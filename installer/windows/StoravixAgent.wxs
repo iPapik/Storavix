@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.7" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
+  <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.8" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
     <MajorUpgrade DowngradeErrorMessage="A newer Storavix Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -12,6 +12,9 @@
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="B535F297-F5A1-4995-8322-8730AE1A6D38">
         <File Id="AgentExe" Source="$(var.AgentExe)" KeyPath="yes" />
+      </Component>
+      <Component Id="LegacyExecutable" Guid="ECDE6CE7-192F-45AB-A9DD-FC66D0950C5A">
+        <File Id="LegacyAgentExe" Name="storavix-agent-legacy.exe" Source="$(var.LegacyAgentExe)" KeyPath="yes" />
       </Component>
       <Component Id="WizardScriptComponent" Guid="05F43785-061A-4224-8F97-4AC083FDE43E">
         <File Id="WizardScript" Source="$(var.SourceRoot)/scripts/configure-agent-windows.ps1" KeyPath="yes" />

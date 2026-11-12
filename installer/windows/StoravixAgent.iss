@@ -1,4 +1,4 @@
-#define AppVersion "0.2.7"
+#define AppVersion "0.2.8"
 #ifndef SourceRoot
 #define SourceRoot "..\.."
 #endif
@@ -22,6 +22,7 @@ WizardStyle=modern
 
 [Files]
 Source: "{#SourceRoot}\build\storavix-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\build\storavix-agent-legacy-windows-amd64.exe"; DestDir: "{app}"; DestName: "storavix-agent-legacy.exe"; Flags: ignoreversion
 Source: "{#SourceRoot}\scripts\configure-agent-windows.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\scripts\configure-agent.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\scripts\diagnose-agent-windows.ps1"; DestDir: "{app}"; Flags: ignoreversion

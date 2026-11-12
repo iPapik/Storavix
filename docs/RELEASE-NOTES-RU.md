@@ -1,15 +1,8 @@
-# Storavix v0.2.7 — Windows startup diagnostics and transparent brand
+# Storavix v0.2.8 — Windows Server compatibility
 
-## Windows agent
-- Every agent start logs to `C:\ProgramData\StoravixAgent\agent.log` before URL, token and identity checks.
-- Failed Task Scheduler start now includes the last lines of the actual agent log in the configuration error and in `setup.log`.
-- Existing `token` and `server.txt` files are explicitly granted SYSTEM and Administrators access, including older installations.
-- MSI/EXE include `Diagnose Storavix Agent` in the Start menu. The diagnostic script shows task state, last result, server connectivity and non-secret log output.
-- CI checks that a real task creates `agent.log`, and confirms fatal startup errors are written into a log.
+- The Windows MSI and EXE embed both the modern Go 1.23 agent and a Go 1.20 legacy compatibility agent.
+- The configuration wizard selects the correct executable automatically based on Windows version. Windows Server 2012 and 2012 R2 use the legacy executable; Windows 10 / Windows Server 2016+ use the modern executable.
+- The previous version's persistent agent diagnostics, SYSTEM ACL fixes and simplified dark-mode SVG branding are retained.
+- GitHub CI builds both binaries and verifies MSI/EXE include each of them.
 
-## Branding
-- New Storavix S/A logo and wordmark are transparent SVGs, native to the charcoal interface with cyan and silver accents.
-- No opaque picture rectangle; consistent styling in the sidebar and login.
-- Version numbers updated consistently across server and agent.
-
-**HTTP is insecure** for registration tokens; use it only in a trusted isolated network. Production systems should use HTTPS.
+**Legacy warning**: Go 1.20 and Windows Server 2012 are end-of-life and do not receive current security patches. Run legacy agents only on restricted trusted networks and upgrade the operating system when possible. Older Windows platforms are not available as GitHub-hosted test runners, so compatibility requires validation on a real Server 2012 host.
