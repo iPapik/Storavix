@@ -175,13 +175,16 @@ jobs:
           $tokenFile = Join-Path $env:RUNNER_TEMP 'storavix-test-token.txt'
           [System.IO.File]::WriteAllText($tokenFile, ('a' * 64))
           $wizard = Join-Path $agentInstallDir 'configure-agent-windows.ps1'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503' -RegistrationTokenFile $tokenFile
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503/' -RegistrationTokenFile $tokenFile
           if ($LASTEXITCODE -ne 0) {
             Get-Content (Join-Path $env:ProgramData 'StoravixAgent/setup.log') -Tail 40 -ErrorAction SilentlyContinue
             throw "MSI installed files but agent configuration did not succeed"
           }
           $task = Get-ScheduledTask -TaskName 'StoravixAgent' -ErrorAction Stop
           if ($task.State -ne 'Running') { throw "MSI agent task state: $($task.State)" }
+          $configuredURL=(Get-Content (Join-Path $env:ProgramData 'StoravixAgent/server.txt') -Raw).Trim()
+          if ($configuredURL -ne 'http://127.0.0.1:65503') { throw "Windows wizard did not normalize trailing slash: '$configuredURL'" }
+          if ($task.Actions[0].Arguments -match '65503/') { throw "Task contains invalid server URL: $($task.Actions[0].Arguments)" }
           if (-not (Test-Path (Join-Path $env:ProgramData 'StoravixAgent/token'))) { throw 'Agent token was not stored.' }
           $idPath = Join-Path $env:ProgramData 'StoravixAgent/agent.id'
           for ($i = 0; $i -lt 15 -and -not (Test-Path $idPath); $i++) { Start-Sleep -Seconds 1 }
@@ -208,7 +211,7 @@ jobs:
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'EXE did not install the agent.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent-legacy.exe'))) { throw 'EXE missing legacy agent.' }
           # The EXE includes the same offline wizard; validate it end-to-end after silent extraction.
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503' -RegistrationTokenFile $tokenFile
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503/' -RegistrationTokenFile $tokenFile
           if ($LASTEXITCODE -ne 0) {
             Get-Content (Join-Path $env:ProgramData 'StoravixAgent/setup.log') -Tail 40 -ErrorAction SilentlyContinue
             throw 'EXE agent registration failed'

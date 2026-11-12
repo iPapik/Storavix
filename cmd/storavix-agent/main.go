@@ -80,13 +80,11 @@ func main() {
 	if *interval < 15*time.Second {
 		log.Fatal("interval must be at least 15s")
 	}
-	u, e := url.Parse(*serverURL)
-	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
-		log.Fatal("--server must be a base URL, for example https://storavix.example.com")
+	normalizedURL, e := normalizeServerURL(*serverURL, *allowHTTP)
+	if e != nil {
+		log.Fatal(e)
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && *allowHTTP) {
-		log.Fatal("HTTPS required. Use --allow-http only for isolated test networks")
-	}
+	log.Printf("using central server=%q", normalizedURL)
 	if *tokenFile == "" {
 		log.Fatal("--token-file required")
 	}
@@ -137,7 +135,7 @@ func main() {
 		}
 		prev = current
 		last = now
-		if e := send(client, *serverURL, token, r); e != nil {
+		if e := send(client, normalizedURL, token, r); e != nil {
 			log.Printf("report failed: %v", e)
 		} else {
 			log.Printf("reported host=%s os=%s", hostname, r.OS)
@@ -151,6 +149,23 @@ func main() {
 		time.Sleep(*interval)
 	}
 }
+// normalizeServerURL accepts either form of a bare origin (with or without
+// its trailing slash). It rejects paths, queries and embedded credentials.
+func normalizeServerURL(raw string, allowHTTP bool) (string, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u == nil || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+		(u.Path != "" && u.Path != "/") || u.RawPath != "" {
+		return "", errors.New("--server must be a base URL like https://storavix.example.com[:port] (optional trailing slash)")
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && allowHTTP) {
+		return "", errors.New("HTTPS required. Use --allow-http only for isolated test networks")
+	}
+	// u.String() normalizes URL casing and escaping; remove only one optional '/'.
+	return strings.TrimSuffix(u.String(), "/"), nil
+}
+
 func send(client *http.Client, base, token string, r telemetry.Report) error {
 	b, e := json.Marshal(r)
 	if e != nil {

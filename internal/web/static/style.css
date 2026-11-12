@@ -107,3 +107,7 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .sidebar .brand.brand-integrated{min-height:83px;padding-bottom:10px}
 .login-brand.brand-integrated .login-logo{width:276px;height:74px;max-width:100%;object-fit:contain}
 @media(max-width:700px){.brand-integrated .sidebar-logo{width:185px;height:54px}}
+
+/* v0.2.9 overview mark uses transparent SVG without a framed photograph */
+.onboarding-visual .pulse-ring{width:168px;height:145px;background:transparent;border:0;box-shadow:none;border-radius:0}
+.onboarding-visual .pulse-ring img{width:155px;max-width:100%;height:auto;max-height:132px;object-fit:contain}

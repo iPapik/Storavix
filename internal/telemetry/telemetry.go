@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.2.8"
+const AgentVersion = "0.2.9"
 const MaxReports = 500
 
 // Report contains only measurements actually collected. Nil means unsupported/unavailable,
