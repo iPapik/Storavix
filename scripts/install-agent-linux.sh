@@ -39,6 +39,8 @@ if [[ "$SERVER" == http://* ]];then
 fi
 echo '[4/6] Установка бинарного файла...'
 if systemctl is-active --quiet storavix-agent;then systemctl stop storavix-agent;fi
+if systemctl is-active --quiet storavix-agent-storage.timer;then systemctl stop storavix-agent-storage.timer;fi
+if systemctl is-active --quiet storavix-agent-storage.service;then systemctl stop storavix-agent-storage.service;fi
 install -o root -g root -m 0755 "$SRC" "$BIN"
 cat > /etc/systemd/system/storavix-agent.service <<SERVICE
 [Unit]
@@ -61,8 +63,40 @@ UMask=0077
 [Install]
 WantedBy=multi-user.target
 SERVICE
+cat > /etc/systemd/system/storavix-agent-storage.service <<'SERVICE'
+[Unit]
+Description=Storavix read-only hardware RAID scan
+
+[Service]
+Type=oneshot
+User=root
+Group=storavix-agent
+ExecStart=/usr/local/bin/storavix-agent --collect-hardware-storage
+RuntimeDirectory=storavix-agent-storage
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=110
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0027
+SERVICE
+cat > /etc/systemd/system/storavix-agent-storage.timer <<'TIMER'
+[Unit]
+Description=Refresh Storavix hardware RAID inventory
+
+[Timer]
+OnActiveSec=1s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+TIMER
 echo '[5/6] Включение службы...'
 systemctl daemon-reload
+systemctl enable --now storavix-agent-storage.timer
 systemctl enable --now storavix-agent
 echo '[6/6] Статус агента:'
 systemctl --no-pager status storavix-agent || true

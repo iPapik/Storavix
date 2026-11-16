@@ -33,7 +33,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.9"
+const version = "0.2.10"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -387,10 +387,10 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 	total := len(s.state.Alerts)
 	mailReady := s.state.Mail.Host != "" && s.state.Mail.From != "" && s.state.Mail.Recipients != ""
 	hosts := len(s.agents)
-	arrays := s.arrayCount()
+	arrays, drives := s.storageCounts()
 	online := s.onlineCount()
 	s.mu.Unlock()
-	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": 0, "network": 0, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
+	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": drives, "network": 0, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
 }
 func (s *server) getMail(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()

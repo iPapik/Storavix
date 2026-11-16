@@ -34,14 +34,14 @@ $('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode
 
 let session=false;
 const pages={overview:['Обзор инфраструктуры','Единый центр состояния серверов, хранилищ и сетевых устройств','OVERVIEW'],servers:['Все системы','Нажмите на систему для просмотра дополнительной информации.','SERVERS'],storage:['RAID и диски','Контроллеры, массивы и физические накопители','STORAGE'],network:['Сетевые устройства','SNMP, интерфейсы, порты и сетевой трафик','NETWORK'],syslog:['Централизованный Syslog','Журналы и события всех устройств в одном месте','SYSLOG'],alerts:['События и алерты','История событий и доставка уведомлений','ALERTS'],settings:['Настройки','Почтовый сервер, безопасность и управление конфигурацией','SETTINGS']};
-const generic={servers:['memory','Серверы появятся после подключения агентов','Установите агенты Storavix на Windows и Linux. Они будут отправлять показатели CPU, RAM, сети и доступности.',['Windows / Linux','Показатели CPU и RAM','Установленные агенты','Обнаружение ОС']],storage:['drives','Управление хранилищами','Первым аппаратным модулем станет мониторинг физических дисков и RAID-контроллеров на серверах Windows и Linux.',['Broadcom StorCLI','Dell PERC','HPE SSACLI','SMART / NVMe','mdadm / Storage Spaces']],network:['network','Мониторинг сетевой инфраструктуры','Добавим устройства по SNMPv3, карты интерфейсов, показатели трафика и уведомления об ошибках портов.',['SNMPv3','Коммутаторы','Маршрутизаторы','Трафик интерфейсов']],syslog:['logs','Централизованный сбор Syslog','Приём журналов с серверов, коммутаторов и маршрутизаторов: UDP, TCP, TLS с поиском и фильтрами.',['Syslog UDP / TCP','Syslog TLS','Поиск событий','Правила алертов']]};
+const generic={servers:['memory','Серверы появятся после подключения агентов','Установите агенты Storavix на Windows и Linux. Они будут отправлять показатели CPU, RAM, сети и доступности.',['Windows / Linux','Показатели CPU и RAM','Установленные агенты','Обнаружение ОС']],network:['network','Мониторинг сетевой инфраструктуры','Добавим устройства по SNMPv3, карты интерфейсов, показатели трафика и уведомления об ошибках портов.',['SNMPv3','Коммутаторы','Маршрутизаторы','Трафик интерфейсов']],syslog:['logs','Централизованный сбор Syslog','Приём журналов с серверов, коммутаторов и маршрутизаторов: UDP, TCP, TLS с поиском и фильтрами.',['Syslog UDP / TCP','Syslog TLS','Поиск событий','Правила алертов']]};
 async function api(url,opts={}){let r;try{r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json','X-Storavix-Request':'1',...(opts.headers||{})},...opts});}catch(e){throw new Error('Нет соединения с сервером Storavix')}let j;try{j=await r.json()}catch(_){throw new Error('Неверный ответ сервера')}if(!r.ok){if(r.status===401){showAuth();throw new Error('Сессия истекла. Войдите заново.')}throw new Error(j.error||`HTTP ${r.status}`)}return j}
 function msg(id,text,error=false){const el=$(id);el.textContent=text;el.classList.toggle('error',error)}
 function showAuth(){$('shell').classList.add('hidden');$('login').classList.remove('hidden');session=false}
 function showShell(){$('login').classList.add('hidden');$('shell').classList.remove('hidden');session=true;goto('overview')}
-function goto(p){if(!pages[p])return;document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));['overview','generic','alerts','settings','servers'].forEach(n=>$(n+'-view').classList.add('hidden'));if(['storage','network','syslog'].includes(p)){$('generic-view').classList.remove('hidden');const c=generic[p];$('generic-symbol').replaceChildren(makeIcon(c[0]));$('generic-title').textContent=c[1];$('generic-description').textContent=c[2];$('generic-features').replaceChildren(...c[3].map(x=>{const v=document.createElement('span');v.textContent=x;return v}))}else{$(p+'-view').classList.remove('hidden')}
-document.querySelector('.heading').classList.toggle('hidden',p==='servers');$('page-title').textContent=pages[p][0];$('page-description').textContent=pages[p][1];$('breadcrumb').textContent=pages[p][0];$('eyebrow-page').textContent=pages[p][2];document.querySelector('.sidebar').classList.remove('open');if(p==='overview')loadOverview();if(p==='servers')loadSystems();if(p==='alerts')loadAlerts();if(p==='settings')loadMail()}
-async function loadOverview(){try{const a=await api('/api/summary');['hosts','arrays','drives','events'].forEach(n=>$('metric-'+n).textContent=a[n]);$('version').textContent='v'+a.version.replace('-dev','');document.querySelector('.staging').textContent=a.hosts?'● Подключено агентов: '+a.hosts:'● Ожидание агентов';document.querySelector('.onboarding h3').textContent=a.hosts?'Подключены агенты Storavix':'Storavix готов к работе';document.querySelector('.onboarding p').textContent=a.hosts?'Сбор метрик CPU, RAM, диска и сети активен. Подробные сведения доступны в разделе «Все системы».':'Веб-интерфейс запущен. Установите агент Storavix на Windows или Linux и введите регистрационный токен.';$('mail-status').textContent=a.mailConfigured?'Настроено':'Не настроено';$('mail-status').className='tag '+(a.mailConfigured?'green':'grey');$('mail-dot').className='component-bullet '+(a.mailConfigured?'success':'idle');const list=await api('/api/alerts');recent(list)}catch(e){console.warn(e.message)}}
+function goto(p){if(!pages[p])return;document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));['overview','generic','alerts','settings','servers','storage'].forEach(n=>$(n+'-view').classList.add('hidden'));if(['network','syslog'].includes(p)){$('generic-view').classList.remove('hidden');const c=generic[p];$('generic-symbol').replaceChildren(makeIcon(c[0]));$('generic-title').textContent=c[1];$('generic-description').textContent=c[2];$('generic-features').replaceChildren(...c[3].map(x=>{const v=document.createElement('span');v.textContent=x;return v}))}else{$(p+'-view').classList.remove('hidden')}
+document.querySelector('.heading').classList.toggle('hidden',p==='servers');$('page-title').textContent=pages[p][0];$('page-description').textContent=pages[p][1];$('breadcrumb').textContent=pages[p][0];$('eyebrow-page').textContent=pages[p][2];document.querySelector('.sidebar').classList.remove('open');if(p==='overview')loadOverview();if(p==='servers'||p==='storage')loadSystems();if(p==='alerts')loadAlerts();if(p==='settings')loadMail()}
+async function loadOverview(){try{const a=await api('/api/summary');['hosts','arrays','drives','events'].forEach(n=>$('metric-'+n).textContent=a[n]);$('version').textContent='v'+a.version.replace('-dev','');renderStorageSummary(a);document.querySelector('.staging').textContent=a.hosts?'● Подключено агентов: '+a.hosts:'● Ожидание агентов';document.querySelector('.onboarding h3').textContent=a.hosts?'Подключены агенты Storavix':'Storavix готов к работе';document.querySelector('.onboarding p').textContent=a.hosts?'Сбор метрик CPU, RAM, диска и сети активен. Подробные сведения доступны в разделе «Все системы».':'Веб-интерфейс запущен. Установите агент Storavix на Windows или Linux и введите регистрационный токен.';$('mail-status').textContent=a.mailConfigured?'Настроено':'Не настроено';$('mail-status').className='tag '+(a.mailConfigured?'green':'grey');$('mail-dot').className='component-bullet '+(a.mailConfigured?'success':'idle');const list=await api('/api/alerts');recent(list)}catch(e){console.warn(e.message)}}
 function recent(events){if(!events.length)return;const box=$('recent-alerts');box.className='';box.replaceChildren(...events.slice(0,4).map(ev=>eventNode(ev)))}
 function eventNode(ev){const row=document.createElement('div');row.className='alert-row';const date=document.createElement('span');date.className='alert-date';date.textContent=new Date(ev.createdAt).toLocaleString('ru-RU');const info=document.createElement('div');const title=document.createElement('strong');title.textContent=ev.subject;const sub=document.createElement('small');sub.textContent=ev.detail;info.append(title,sub);const status=document.createElement('span');status.className=ev.delivered?'sent':'failed';status.textContent=ev.delivered?'Отправлено':'Ошибка отправки';row.append(date,info,status);return row}
 async function loadAlerts(){try{const ev=await api('/api/alerts');const list=$('alerts-list');list.replaceChildren();if(!ev.length){list.innerHTML='<div class="empty-compact"><span class="empty-icon"></span><strong>История событий пуста</strong><p>Система пока не получала события. Тестовую отправку можно проверить в настройках.</p></div>';list.querySelector('.empty-icon').replaceChildren(makeIcon('bell'));return}list.append(...ev.map(eventNode))}catch(e){console.warn(e.message)}}
@@ -76,13 +76,55 @@ const fmtPercent=x=>typeof x==='number'?x.toLocaleString('ru-RU',{maximumFractio
 const fmtRate=x=>typeof x!=='number'?'—':x>=1048576?(x/1048576).toLocaleString('ru-RU',{maximumFractionDigits:2})+' MB/s':x>=1024?(x/1024).toLocaleString('ru-RU',{maximumFractionDigits:1})+' KB/s':x.toLocaleString('ru-RU',{maximumFractionDigits:0})+' B/s';
 const fmtUptime=x=>typeof x!=='number'?'—':x>=86400?Math.floor(x/86400)+' дн.':x>=3600?Math.floor(x/3600)+' ч.':Math.floor(x/60)+' мин.';
 function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
-function stateFor(r){return Date.now()-Date.parse(r.receivedAt)>120000?'offline':r.arrays?.some(a=>a.status==='degraded'||a.status==='inactive')?'warn':'online'}
+function stateFor(r){return Date.now()-Date.parse(r.receivedAt)>120000?'offline':storageHasWarning(r)?'warn':'online'}
 function makeSystemCard(r){const status=stateFor(r);const card=document.createElement('article');card.className='system-card';card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Подробнее о сервере '+r.hostname);const head=document.createElement('div');head.className='system-head';const name=document.createElement('b');name.textContent=r.hostname;const dot=document.createElement('i');dot.className='system-dot '+status;head.append(dot,name);const state=document.createElement('span');state.className='system-state';state.textContent=status==='online'?'● Онлайн':status==='warn'?'RAID: внимание':'● Нет связи';head.append(state);card.append(head);
- const m=document.createElement('div');m.className='system-metrics';m.append(metricRow('cpu','ЦП:',fmtPercent(r.cpuPercent),r.cpuPercent),metricRow('memory','Память:',fmtPercent(r.memoryPercent),r.memoryPercent),metricRow('drive','Диск:',fmtPercent(r.diskPercent),r.diskPercent,90),metricRow('gpu','GPU:','—'),metricRow('activity','Ср. загрузка:',r.loadAverage?.length===3?r.loadAverage.map(v=>v.toLocaleString('ru-RU',{maximumFractionDigits:2})).join(', '):'—'),metricRow('network','Сеть:',fmtRate(r.networkBytesPerSec)),metricRow('thermometer','Темп:','—'),metricRow('wifi','Wi-Fi:','—'),metricRow('services','Службы:','—'),metricRow('package','Обновления:','—'),metricRow('clock','Время работы:',fmtUptime(r.uptimeSeconds)),metricRow('radio','Агент:',r.version||'—'));
+ const m=document.createElement('div');m.className='system-metrics';m.append(metricRow('cpu','ЦП:',fmtPercent(r.cpuPercent),r.cpuPercent),metricRow('memory','Память:',fmtPercent(r.memoryPercent),r.memoryPercent),metricRow('drive','Диск:',fmtPercent(r.diskPercent),r.diskPercent,90),metricRow('network','Сеть:',fmtRate(r.networkBytesPerSec)),metricRow('clock','Время работы:',fmtUptime(r.uptimeSeconds)),metricRow('drive','RAID:',fmtArrayCount(r)),metricRow('radio','Агент:',r.version||'—'));
  card.append(m);const expand=()=>showSystemDetail(r);card.addEventListener('click',expand);card.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();expand()}});return card}
 function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||x.os.toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
-async function loadSystems(){try{systemsCache=await api('/api/agents');renderSystems()}catch(e){console.warn(e.message)}}
-function showSystemDetail(r){$('detail-name').textContent=r.hostname;const d=$('detail-content');d.replaceChildren();const fields=[['Система',r.os],['Последний опрос',new Date(r.receivedAt).toLocaleString('ru-RU')],['CPU',fmtPercent(r.cpuPercent)],['Память',fmtPercent(r.memoryPercent)],['Заполнение системного раздела',fmtPercent(r.diskPercent)],['Сеть (приём + передача)',fmtRate(r.networkBytesPerSec)],['Время работы',fmtUptime(r.uptimeSeconds)],['Версия агента',r.version]];fields.forEach(([key,val])=>{const row=document.createElement('div');row.className='detail-row';const label=document.createElement('span');label.textContent=key;const value=document.createElement('strong');value.textContent=val??'—';row.append(label,value);d.append(row)});const heading=document.createElement('h3');heading.textContent='RAID-массивы (проверенные агентом)';d.append(heading);if(!r.arrays?.length){const p=document.createElement('p');p.className='muted';p.textContent='Нет доступных сведений о RAID. Это не означает, что массивы исправны.';d.append(p)}else r.arrays.forEach(a=>{const p=document.createElement('p');p.textContent=a.name+' — '+a.status+' · '+(a.detail||'');d.append(p)});const actions=document.createElement('div');actions.className='detail-actions';
+async function loadSystems() {
+  try {
+    const agents = await api('/api/agents');
+    systemsCache = agents;
+    renderSystems();
+    renderStorage();
+    const modal = $('system-detail');
+    if (!modal.classList.contains('hidden')) {
+      const report = agents.find(agent => agent.id === modal.dataset.agent);
+      if (report && !$('detail-content').querySelector('button:disabled')) showSystemDetail(report);
+    }
+  } catch (e) {
+    console.warn(e.message);
+    $('storage-servers').replaceChildren(makeText('p', e.message, 'systems-note'));
+  }
+}
+function showSystemDetail(r) {
+  $('system-detail').dataset.agent = r.id;
+  $('detail-name').textContent = r.hostname;
+  const d = $('detail-content');
+  const open = new Set([...d.querySelectorAll('details[open]')].map(node => node.dataset.storageKey));
+  d.replaceChildren();
+  const fields = [
+    ['Система', r.os], ['Последний опрос', new Date(r.receivedAt).toLocaleString('ru-RU')],
+    ['ЦП', fmtPercent(r.cpuPercent)], ['Память', fmtPercent(r.memoryPercent)],
+    ['Оперативная память', r.memoryBytes ? fmtBytes(r.memoryBytes) : null],
+    ['Доступно памяти', r.memoryAvailable != null ? fmtBytes(r.memoryAvailable) : null],
+    ['Заполнение системного раздела', fmtPercent(r.diskPercent)],
+    ['Сеть (приём + передача)', fmtRate(r.networkBytesPerSec)],
+    ['Средняя загрузка (1, 5, 15 мин.)', r.loadAverage?.length === 3 ? r.loadAverage.join(' / ') : null],
+    ['Время работы', fmtUptime(r.uptimeSeconds)], ['Версия агента', r.version]
+  ];
+  for (const [key, value] of fields) detailRow(d, key, value ?? '—');
+  if (r.volumes?.length) {
+    d.append(makeText('h3', 'Файловые системы'));
+    d.append(dataTable(
+      ['Том', 'Тип', 'Объём', 'Свободно', 'Занято'],
+      r.volumes.map(v => [v.name, v.filesystem || '—', fmtBytes(v.sizeBytes), fmtBytes(v.availableBytes),
+        fmtPercent(100 * (1 - v.availableBytes / v.sizeBytes))])
+    ));
+  }
+  d.append(makeText('h3', 'RAID и физические диски'));
+  d.append(storageInventory(r, open));
+  const actions=document.createElement('div');actions.className='detail-actions';
 const tip=document.createElement('p');tip.className='muted';tip.textContent='Удалённое устройство не сможет вернуться с прежним ID агента.';
 const del=document.createElement('button');del.type='button';del.className='danger-button';del.append(makeIcon('trash'),document.createTextNode(' Удалить устройство'));
 del.addEventListener('click',async()=>{if(!confirm('Удалить «'+r.hostname+'» из мониторинга? Для повторного подключения потребуется новый ID агента.'))return;del.disabled=true;try{await api('/api/agents/'+encodeURIComponent(r.id),{method:'DELETE'});$('system-detail').classList.add('hidden');await loadSystems()}catch(err){alert('Удаление не выполнено: '+err.message);del.disabled=false}});
@@ -94,4 +136,228 @@ $('systems-refresh').addEventListener('click',loadSystems);
 $('system-detail-close').addEventListener('click',()=>$('system-detail').classList.add('hidden'));
 $('system-detail').addEventListener('click',e=>{if(e.target===$('system-detail'))$('system-detail').classList.add('hidden')});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('system-detail').classList.add('hidden')});
-setInterval(()=>{if(session&&!$('servers-view').classList.contains('hidden'))loadSystems()},30000);
+setInterval(()=>{if(session&&['servers','storage'].some(p=>!$(p+'-view').classList.contains('hidden')))loadSystems()},30000);
+
+function fmtArrayCount(report) {
+  if (report.arrays?.length) return String(report.arrays.length);
+  return report.storage?.sources?.some(source => source.status === 'ok') ? '0' : '—';
+}
+
+const storageStates = {
+  active: ['В норме', 'green'], degraded: ['Деградация', 'storage-warning'],
+  rebuilding: ['Восстановление', 'storage-warning'], inactive: ['Недоступно', 'storage-failed'],
+  unknown: ['Неизвестно', 'grey']
+};
+const storageSources = {
+  'linux-md': 'Linux MD', 'windows-spaces': 'Storage Spaces',
+  'linux-raid-hardware': 'Аппаратный RAID Linux', 'storcli-perccli': 'StorCLI / PercCLI',
+  storcli: 'StorCLI', storcli2: 'StorCLI2', perccli: 'PercCLI', perccli2: 'PercCLI2',
+  ssacli: 'HPE SSA CLI', 'inventory-limit': 'Лимит инвентаризации'
+};
+const storageSourceStates = {
+  ok: 'опрошен', partial: 'частичные данные', error: 'ошибка опроса', unavailable: 'недоступен'
+};
+const driveRoles = {
+  member: 'Участник', spare: 'Резервный', 'global-spare': 'Общий резервный',
+  jbod: 'JBOD', unassigned: 'Свободный', pool: 'Диск пула', journal: 'Журнал', retired: 'Выведен'
+};
+
+function makeText(tag, value, className) {
+  const node = document.createElement(tag);
+  node.textContent = value;
+  if (className) node.className = className;
+  return node;
+}
+
+function fmtBytes(amount) {
+  if (typeof amount !== 'number') return '—';
+  const units = ['Б', 'КиБ', 'МиБ', 'ГиБ', 'ТиБ', 'ПиБ', 'ЭиБ'];
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit++;
+  }
+  return amount.toLocaleString('ru-RU', {maximumFractionDigits: 2}) + ' ' + units[unit];
+}
+
+function healthTag(status) {
+  const [label, color] = storageStates[status] || storageStates.unknown;
+  return makeText('span', label, 'tag ' + color);
+}
+
+function storageHasWarning(report) {
+  const states = [...(report.arrays || []), ...(report.storage?.drives || []), ...(report.storage?.controllers || [])];
+  return states.some(item => ['degraded', 'inactive', 'rebuilding'].includes(item.status))
+    || report.storage?.sources?.some(source => source.status === 'error' || source.status === 'partial');
+}
+
+function detailRow(parent, label, value) {
+  const row = document.createElement('div');
+  row.className = 'detail-row';
+  row.append(makeText('span', label), makeText('strong', value));
+  parent.append(row);
+}
+
+function dataTable(columns, rows) {
+  const wrap = document.createElement('div');
+  wrap.className = 'storage-table-wrap';
+  const table = document.createElement('table');
+  table.className = 'storage-table';
+  const headers = table.createTHead().insertRow();
+  for (const column of columns) {
+    const header = makeText('th', column);
+    header.scope = 'col';
+    headers.append(header);
+  }
+
+  const body = table.createTBody();
+  for (const values of rows) {
+    const row = body.insertRow();
+    for (const value of values) {
+      const cell = row.insertCell();
+      if (value instanceof Node) cell.append(value);
+      else cell.textContent = value ?? '—';
+    }
+  }
+  wrap.append(table);
+  return wrap;
+}
+
+function driveTable(drives) {
+  return dataTable(
+    ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Роль', 'Состояние'],
+    drives.map(d => {
+      const health = document.createElement('div');
+      health.append(healthTag(d.status));
+      if (d.detail) health.append(makeText('small', d.detail, 'storage-cell-note'));
+      if (d.progress != null) health.append(makeText('small', fmtPercent(d.progress), 'storage-cell-note'));
+      if (d.temperature != null) health.append(makeText('small', d.temperature + ' °C', 'storage-cell-note'));
+      const model = document.createElement('div');
+      model.append(makeText('span', d.model || '—'));
+      if (d.firmware) model.append(makeText('small', 'FW ' + d.firmware, 'storage-cell-note'));
+      return [[d.slot, d.device].filter(Boolean).join(' · ') || '—', model, d.serial || '—',
+        [d.interface, d.media].filter(Boolean).join(' / ') || '—', d.sizeBytes ? fmtBytes(d.sizeBytes) : '—',
+        driveRoles[d.role] || d.role || '—', health];
+    })
+  );
+}
+
+function arrayInfo(array, drives, open) {
+  const card = document.createElement('details');
+  card.className = 'storage-array';
+  card.dataset.storageKey = JSON.stringify([array.controller, array.group, array.name]);
+  card.open = open.has(card.dataset.storageKey);
+  const summary = document.createElement('summary');
+  const name = [array.name, array.level, array.group].filter(Boolean).join(' · ');
+  summary.append(makeText('strong', name), healthTag(array.status));
+  card.append(summary);
+  const fields = [
+    ['Объём', array.sizeBytes ? fmtBytes(array.sizeBytes) : null],
+    ['Ожидается дисков', array.expected || null],
+    ['Отсутствует дисков', array.missing || null],
+    ['Прогресс', array.progress != null ? fmtPercent(array.progress) : null],
+    ['Состояние по данным источника', array.detail]
+  ];
+  for (const [key, value] of fields) if (value != null && value !== '') detailRow(card, key, value);
+  const members = (array.members || []).map(id => drives.get(id)).filter(Boolean);
+  if (members.length) card.append(driveTable(members));
+  else card.append(makeText('p', 'Источник не передал состав массива.', 'muted'));
+  return card;
+}
+
+function storageInventory(report, open = new Set()) {
+  const host = document.createElement('div');
+  host.className = 'storage-inventory';
+  const inventory = report.storage;
+  const arrays = report.arrays || [];
+  if (Date.now() - Date.parse(report.receivedAt) > 120000) {
+    host.append(makeText('p', 'Сервер вне сети. Показаны последние полученные данные.', 'muted'));
+  }
+  if (inventory) {
+    const sources = document.createElement('p');
+    sources.className = 'storage-sources';
+    const collected = new Date(inventory.collectedAt);
+    sources.append(makeText('strong', 'Опрос хранилища ' + collected.toLocaleString('ru-RU')));
+    for (const source of inventory.sources || []) {
+      const name = storageSources[source.name] || source.name;
+      sources.append(makeText('span', name + ' · ' + storageSourceStates[source.status],
+        'tag ' + (source.status === 'error' || source.status === 'partial' ? 'storage-warning' : 'grey')));
+    }
+    host.append(sources);
+  }
+  if (fmtArrayCount(report) !== '—' || (inventory?.drives || []).length) {
+    host.append(makeText('p', 'Обнаружено массивов: ' + fmtArrayCount(report) +
+      (inventory ? ' · Физических дисков: ' + (inventory.drives || []).length : ''), 'muted'));
+  }
+  const drives = new Map((inventory?.drives || []).map(drive => [drive.id, drive]));
+  const controllers = inventory?.controllers || [];
+  for (const c of controllers) {
+    const block = document.createElement('div');
+    block.className = 'storage-controller';
+    const header = document.createElement('div');
+    header.className = 'storage-controller-head';
+    header.append(makeText('h4', c.model || c.id), healthTag(c.status));
+    block.append(header);
+    const identity = [storageSources[c.source] || c.source, c.serial && ('S/N ' + c.serial),
+      c.firmware && ('FW ' + c.firmware), c.detail].filter(Boolean);
+    if (identity.length) block.append(makeText('p', identity.join(' · '), 'muted'));
+    const list = arrays.filter(a => a.controller === c.id);
+    for (const a of list) block.append(arrayInfo(a, drives, open));
+    const attached = (inventory.drives || []).filter(drive => drive.controller === c.id);
+    if (attached.length) {
+      const physical = document.createElement('details');
+      physical.className = 'storage-array';
+      physical.dataset.storageKey = c.id;
+      physical.open = open.has(c.id);
+      physical.append(makeText('summary', 'Все физические диски (' + attached.length + ')'), driveTable(attached));
+      block.append(physical);
+    }
+    host.append(block);
+  }
+  for (const a of arrays.filter(a => !a.controller)) host.append(arrayInfo(a, drives, open));
+  if (!controllers.length && !arrays.length) {
+    const available = inventory?.sources?.some(source => source.status === 'ok');
+    const message = !inventory ? 'Ожидание инвентаризации. Проверьте версию агента.' :
+      available ? 'Опрошенные источники не обнаружили RAID-массивы.' : 'Нет доступной инвентаризации RAID.';
+
+    host.append(makeText('p', message, 'muted'));
+  }
+  return host;
+}
+
+function renderStorage() {
+  const root = $('storage-servers');
+  const filter = $('storage-filter').value.toLowerCase().trim();
+  const open = new Set([...root.querySelectorAll('details[open]')].map(node => node.dataset.agent || (node.closest('[data-agent]').dataset.agent + '/' + node.dataset.storageKey)));
+  const reports = systemsCache.filter(report =>
+    [report.hostname, ...(report.storage?.controllers || []).map(c => c.model)].some(value => value.toLowerCase().includes(filter)));
+  if (!reports.length) {
+    root.replaceChildren(makeText('p', systemsCache.length ? 'По фильтру ничего не найдено.' : 'Нет подключённых серверов.', 'systems-note'));
+    return;
+  }
+  root.replaceChildren(...reports.map(report => {
+    const section = document.createElement('details');
+    section.className = 'panel storage-host';
+    section.dataset.agent = report.id;
+    section.open = open.has(report.id) || (reports.length === 1 && !root.children.length);
+    const title = document.createElement('summary');
+    title.append(makeText('strong', report.hostname), makeText('span', report.os, 'muted'));
+    if (Date.now() - Date.parse(report.receivedAt) > 120000) title.append(makeText('span', 'Нет связи', 'tag grey'));
+    else if (storageHasWarning(report)) title.append(makeText('span', 'Требуется внимание', 'tag storage-warning'));
+    title.append(makeText('span', 'Массивы: ' + fmtArrayCount(report), 'tag grey'));
+    const prefix = report.id + '/';
+    const expanded = [...open].filter(key => key?.startsWith(prefix)).map(key => key.slice(prefix.length));
+    section.append(title, storageInventory(report, new Set(expanded)));
+    return section;
+  }));
+}
+
+function renderStorageSummary(summary) {
+  const root = $('overview-storage');
+  root.replaceChildren(makeText('strong', !summary.hosts ? 'Ожидание данных от агентов' :
+    summary.arrays || summary.drives ? 'Массивы: ' + summary.arrays + ' · Диски: ' + summary.drives :
+    'Пока нет данных о массивах и дисках'));
+}
+
+$('storage-filter').addEventListener('input', renderStorage);
+$('storage-refresh').addEventListener('click', loadSystems);

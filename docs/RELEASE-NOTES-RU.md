@@ -1,16 +1,9 @@
-# Storavix v0.2.9 — URL trailing slash regression fix
+# Storavix v0.2.10 — телеметрия и инвентаризация RAID
 
-## Fixed Windows agent startup
-- Agent now accepts a valid base URL either with or without a trailing slash, e.g. `http://192.168.111.130:8080/`.
-- The Windows setup wizard normalizes the URL to the origin (without trailing slash) before writing the config file or registering a scheduled task.
-- Invalid paths, query strings, embedded credentials and insecure HTTP without explicit `--allow-http` remain rejected.
-- Added Go table tests with both URL forms and negative cases.
-- Changed Windows MSI and EXE smoke tests to pass a trailing-slash URL and assert the persisted URL and scheduled-task command are normalized.
+- В карточке сервера видны CPU, память, файловые системы, сетевой трафик, время работы и средняя нагрузка Linux.
+- Раздел «RAID и диски» показывает контроллеры, модели, уровни и состояния массивов, состав накопителей и резервные диски.
+- Для физических накопителей выводятся слот, модель, серийный номер, интерфейс, ёмкость, состояние и доступные дополнительные данные, включая прогресс восстановления.
+- Источники RAID: StorCLI/StorCLI2 и PercCLI/PercCLI2, HPE SSA CLI, Linux MD и Windows Storage Spaces. Для аппаратных контроллеров установите совместимую утилиту производителя на сервере. Источники с ошибкой опроса или неполными данными отмечаются в интерфейсе.
+- Сначала обновите центральную панель (`sudo storavix-update` на Linux), затем агенты. Для агентов доступны `sudo storavix-agent-update` на Linux и `storavix-agent-update` на Windows либо установка MSI/EXE поверх существующей версии. Настройки подключения и ID сохраняются.
 
-## Web UI
-- Replaced the remaining old logo image on the overview page with the new transparent SVG mark.
-- Removed the old framed background around the overview mark.
-
-## Upgrade
-- Do not delete the stored token or agent identity. Install MSI/EXE v0.2.9 over existing installation.
-- The Windows setup wizard will normalize an existing URL saved with a trailing slash.
+Подробности по установке утилит и выбору пути приведены в [руководстве агента](https://github.com/iPapik/Storavix/blob/main/docs/AGENT-RU.md).

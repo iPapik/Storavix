@@ -10,3 +10,5 @@ type Snapshot struct {
 }
 
 func Read() (telemetry.Report, Snapshot) { return telemetry.Report{OS: "unsupported"}, Snapshot{} }
+
+func storageProbes() map[string]probe { return nil }

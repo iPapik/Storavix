@@ -41,6 +41,7 @@ func ensureAgentToken(dir string) (string, error) {
 	}
 	return token, nil
 }
+
 // agentStore keeps deleted agent IDs excluded even if a retired agent still
 // sends telemetry using the shared registration token. Older agents.json files
 // containing only the map remain readable and are migrated on the next write.
@@ -48,6 +49,7 @@ type agentStore struct {
 	Agents  map[string]telemetry.Report `json:"agents"`
 	Deleted map[string]bool             `json:"deleted,omitempty"`
 }
+
 func (s *server) loadAgents() error {
 	b, e := os.ReadFile(filepath.Join(s.dataDir, "agents.json"))
 	if errors.Is(e, os.ErrNotExist) {
@@ -91,12 +93,14 @@ func (s *server) saveAgentsLocked() error {
 	}
 	return os.Rename(temp, filepath.Join(s.dataDir, "agents.json"))
 }
-func (s *server) arrayCount() int {
-	n := 0
+func (s *server) storageCounts() (arrays, drives int) {
 	for _, r := range s.agents {
-		n += len(r.Arrays)
+		arrays += len(r.Arrays)
+		if r.Storage != nil {
+			drives += len(r.Storage.Drives)
+		}
 	}
-	return n
+	return
 }
 func (s *server) onlineCount() int {
 	now := time.Now()
@@ -123,6 +127,7 @@ func (s *server) getAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, records)
 }
+
 // deleteAgent removes a retired device and persists a tombstone, preventing
 // automatic reappearance from a still-running agent with the same identity.
 func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +173,7 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 401, "invalid agent token")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, telemetry.MaxReportBytes)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	var report telemetry.Report
@@ -197,8 +202,16 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "host limit reached")
 		return
 	}
+	previous, existed := s.agents[report.ID]
 	s.agents[report.ID] = report
 	e = s.saveAgentsLocked()
+	if e != nil {
+		if existed {
+			s.agents[report.ID] = previous
+		} else {
+			delete(s.agents, report.ID)
+		}
+	}
 	s.mu.Unlock()
 	if e != nil {
 		problem(w, 500, "storage error")

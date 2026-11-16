@@ -75,6 +75,7 @@ func Read() (telemetry.Report, Snapshot) {
 	ss.NetBytes, ss.NetValid = readNetwork()
 	if b, e := os.ReadFile("/proc/meminfo"); e == nil {
 		var total, available uint64
+		var haveAvailable bool
 		for _, ln := range strings.Split(string(b), "\n") {
 			f := strings.Fields(ln)
 			if len(f) < 2 {
@@ -86,15 +87,19 @@ func Read() (telemetry.Report, Snapshot) {
 				total = v
 			case "MemAvailable:":
 				available = v
+				haveAvailable = true
 			}
 		}
-		if total > 0 {
+		r.MemoryBytes = total * 1024
+		if total > 0 && available <= total && haveAvailable {
+			free := available * 1024
+			r.MemoryAvailable = &free
 			x := 100 * (1 - float64(available)/float64(total))
 			r.MemoryPercent = &x
 		}
 	}
 	var stat syscall.Statfs_t
-	if syscall.Statfs("/", &stat) == nil && stat.Blocks > 0 {
+	if syscall.Statfs("/", &stat) == nil && stat.Blocks > 0 && stat.Bavail <= stat.Blocks {
 		x := 100 * (1 - float64(stat.Bavail)/float64(stat.Blocks))
 		r.DiskPercent = &x
 	}
@@ -115,43 +120,43 @@ func Read() (telemetry.Report, Snapshot) {
 			}
 		}
 	}
-	if b, e := os.ReadFile("/proc/mdstat"); e == nil {
-		r.Arrays = ParseMDStat(string(b))
-	}
+	r.Volumes = linuxVolumes()
 	return r, ss
 }
-func ParseMDStat(body string) []telemetry.Array {
-	lines := strings.Split(body, "\n")
-	out := []telemetry.Array{}
-	for i, ln := range lines {
-		f := strings.Fields(ln)
-		if len(f) < 4 || !strings.HasPrefix(f[0], "md") || f[1] != ":" {
+
+var mountEscapes = strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+
+func linuxVolumes() []telemetry.Volume {
+	file, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	var volumes []telemetry.Volume
+	seen := map[string]bool{}
+	s := bufio.NewScanner(file)
+	for s.Scan() && len(volumes) < telemetry.MaxVolumes {
+		mount, source, ok := strings.Cut(s.Text(), " - ")
+		m, f := strings.Fields(mount), strings.Fields(source)
+		if !ok || len(m) < 5 || len(f) < 2 {
 			continue
 		}
-		status := "unknown"
-		for _, v := range f {
-			if v == "active" {
-				status = "active"
-			}
-			if v == "inactive" {
-				status = "inactive"
-			}
+		path := mountEscapes.Replace(m[4])
+		if path != "/" && !strings.HasPrefix(f[1], "/dev/") && f[0] != "zfs" {
+			continue
 		}
-		detail := strings.TrimSpace(ln)
-		if i+1 < len(lines) {
-			next := strings.TrimSpace(lines[i+1])
-			detail += " | " + next
-			if strings.Contains(next, "recovery") || strings.Contains(next, "resync") || strings.Contains(next, "reshape") {
-				status = "rebuilding"
-			}
-			if strings.Contains(next, "_") && strings.Contains(next, "[") {
-				status = "degraded"
-			}
+		if strings.ContainsAny(path, "\r\n") || seen[path] || strings.HasPrefix(path, "/snap/") || strings.HasPrefix(path, "/var/lib/docker/") {
+			continue
 		}
-		if len(detail) > 300 {
-			detail = detail[:300]
+		var stat syscall.Statfs_t
+		if syscall.Statfs(path, &stat) != nil || stat.Blocks == 0 || stat.Bavail > stat.Blocks {
+			continue
 		}
-		out = append(out, telemetry.Array{Name: f[0], Status: status, Detail: detail})
+		seen[path] = true
+		volumes = append(volumes, telemetry.Volume{
+			Name: clean(path), Filesystem: clean(f[0]),
+			SizeBytes: stat.Blocks * uint64(stat.Bsize), AvailableBytes: stat.Bavail * uint64(stat.Bsize),
+		})
 	}
-	return out
+	return volumes
 }

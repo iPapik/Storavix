@@ -61,6 +61,9 @@ func main() {
 	allowHTTP := flag.Bool("allow-http", false, "INSECURE: allow unencrypted transport on a trusted network only")
 	logFile := flag.String("log-file", "", "agent diagnostics file; default data-dir/agent.log")
 	flag.Parse()
+	if runHardwareInventory() {
+		return
+	}
 	// Write diagnostics before validating URL/token/agent ID, otherwise Task
 	// Scheduler reports only LastTaskResult=1 without a useful error.
 	log.SetFlags(log.LstdFlags | log.LUTC)
@@ -112,8 +115,30 @@ func main() {
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
 	var prev collector.Snapshot
 	var last time.Time
+	var inventory *collector.Inventory
+	pollingStorage := true
+	storage := make(chan collector.Inventory, 1)
+	scan := func() { storage <- collector.ReadStorage() }
+	go scan()
 	for {
 		r, current := collector.Read()
+		select {
+		case result := <-storage:
+			inventory = &result
+			pollingStorage = false
+		default:
+			if *once {
+				result := <-storage
+				inventory = &result
+			}
+		}
+		if inventory != nil {
+			inventory.AddTo(&r)
+			if !*once && time.Since(inventory.CollectedAt) >= time.Minute && !pollingStorage {
+				pollingStorage = true
+				go scan()
+			}
+		}
 		r.ID = id
 		r.Hostname = hostname
 		r.OS = runtime.GOOS
@@ -135,7 +160,8 @@ func main() {
 		}
 		prev = current
 		last = now
-		if e := send(client, normalizedURL, token, r); e != nil {
+		e = send(client, normalizedURL, token, r)
+		if e != nil {
 			log.Printf("report failed: %v", e)
 		} else {
 			log.Printf("reported host=%s os=%s", hostname, r.OS)
@@ -149,6 +175,7 @@ func main() {
 		time.Sleep(*interval)
 	}
 }
+
 // normalizeServerURL accepts either form of a bare origin (with or without
 // its trailing slash). It rejects paths, queries and embedded credentials.
 func normalizeServerURL(raw string, allowHTTP bool) (string, error) {

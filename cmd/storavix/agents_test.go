@@ -51,7 +51,8 @@ func TestAgentTokenReportsPersistAndRequireCredentials(t *testing.T) {
 	if code := post(tok); code != 202 {
 		t.Fatalf("valid token rejected: %d", code)
 	}
-	if len(s.agents) != 1 || s.agents["0123456789abcdef0123456789abcdef"].Hostname != "srv55" || s.arrayCount() != 1 {
+	arrays, drives := s.storageCounts()
+	if len(s.agents) != 1 || s.agents["0123456789abcdef0123456789abcdef"].Hostname != "srv55" || arrays != 1 || drives != 0 {
 		t.Fatal("report not processed")
 	}
 	if len(s.agents["0123456789abcdef0123456789abcdef"].ReceivedAt.Format(time.RFC3339)) == 0 {
@@ -152,4 +153,64 @@ func TestLegacyAgentDataMigratesWithoutLosingReports(t *testing.T) {
 	if err!=nil {t.Fatal(err)}
 	s2,err:=newServer(dir)
 	if err!=nil || len(s2.agents)!=1 {t.Fatal("migration failed",err)}
+}
+
+func TestDetailedAgentReportPersistsAndCountsUniqueDrives(t *testing.T) {
+	t.Setenv("STORAVIX_ADMIN_PASSWORD", "abcdefgh")
+	dir := t.TempDir()
+	s, err := newServer(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := ensureAgentToken(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := telemetry.Report{
+		ID: "0123456789abcdef0123456789abcdef", Hostname: "raid-host", OS: "windows",
+		MemoryBytes: 16 * 1024 * 1024 * 1024,
+		Volumes:     []telemetry.Volume{{Name: "D:", Filesystem: "NTFS", SizeBytes: 10000, AvailableBytes: 5000}},
+		Arrays: []telemetry.Array{
+			{Name: "Data", Controller: "c0", Level: "RAID1", Status: "rebuilding", Members: []string{"d0", "d1"}},
+			{Name: "Logs", Controller: "c0", Level: "RAID1", Status: "degraded", Members: []string{"d0", "d1"}},
+		},
+		Storage: &telemetry.Storage{
+			CollectedAt: time.Now().UTC(),
+			Sources:     []telemetry.Source{{Name: "storcli", Status: "ok"}},
+			Controllers: []telemetry.Controller{{ID: "c0", Source: "storcli", Model: "MegaRAID 9560", Status: "active"}},
+			Drives: []telemetry.Drive{
+				{ID: "d0", Controller: "c0", Slot: "251:0", Serial: "SN01", Role: "member", Status: "active"},
+				{ID: "d1", Controller: "c0", Slot: "251:1", Serial: "SN02", Role: "member", Status: "rebuilding"},
+			},
+		},
+	}
+	post := func() int {
+		b, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/agent/report", strings.NewReader(string(b)))
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("X-Storavix-Request", "1")
+		res := httptest.NewRecorder()
+		s.routes().ServeHTTP(res, request)
+		return res.Code
+	}
+	if status := post(); status != http.StatusAccepted {
+		t.Fatalf("could not ingest detailed report, HTTP %d", status)
+	}
+	report.Arrays[0].Members[0] = "missing"
+	if status := post(); status != http.StatusBadRequest {
+		t.Fatalf("invalid drive reference accepted, HTTP %d", status)
+	}
+	reopened, err := newServer(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arrays, drives := reopened.storageCounts()
+	persisted := reopened.agents[report.ID]
+	if arrays != 2 || drives != 2 || len(persisted.Volumes) != 1 || persisted.Arrays[0].Members[0] != "d0" ||
+		persisted.Storage.Drives[1].Serial != "SN02" || !persisted.Storage.CollectedAt.Equal(report.Storage.CollectedAt) {
+		t.Fatalf("unexpected persisted inventory: %+v", persisted)
+	}
 }
