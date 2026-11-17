@@ -11,10 +11,27 @@ import (
 )
 
 type Widget struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Wide  bool   `json:"wide"`
-	MapID string `json:"mapId,omitempty"`
+	ID     string        `json:"id"`
+	Type   string        `json:"type"`
+	Wide   bool          `json:"wide"`
+	MapID  string        `json:"mapId,omitempty"`
+	Layout *WidgetLayout `json:"layout,omitempty"`
+}
+
+type WidgetLayout struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
+}
+
+func (p WidgetLayout) valid() bool {
+	return p.X >= 0 && p.X <= 9 && p.Y >= 0 && p.Y < 192 &&
+		p.W >= 3 && p.W <= 12 && p.H >= 2 && p.H <= 12 && p.X+p.W <= 12
+}
+
+func (p WidgetLayout) overlaps(other WidgetLayout) bool {
+	return p.X < other.X+other.W && other.X < p.X+p.W && p.Y < other.Y+other.H && other.Y < p.Y+p.H
 }
 
 type MapNode struct {
@@ -96,13 +113,25 @@ func (c DashboardConfig) validate() error {
 		}
 	}
 	widgets := map[string]bool{}
+	var positions []WidgetLayout
 	for _, w := range c.Widgets {
 		if !configID.MatchString(w.ID) || widgets[w.ID] {
 			return errors.New("Некорректный виджет")
 		}
 		widgets[w.ID] = true
+		if w.Layout != nil {
+			if !w.Layout.valid() {
+				return errors.New("Виджет выходит за пределы сетки")
+			}
+			for _, position := range positions {
+				if w.Layout.overlaps(position) {
+					return errors.New("Виджеты не могут перекрываться")
+				}
+			}
+			positions = append(positions, *w.Layout)
+		}
 		switch w.Type {
-		case "raid", "network", "problems", "events", "servers":
+		case "raid", "network", "problems", "events", "servers", "geomap":
 			if w.MapID != "" {
 				return errors.New("Карта доступна в виджете топологии")
 			}
@@ -174,18 +203,26 @@ type DashboardProblem struct {
 }
 
 type DashboardData struct {
-	Hosts    []DashboardHost    `json:"hosts"`
-	Arrays   []DashboardArray   `json:"arrays"`
-	Network  []NetworkDevice    `json:"network"`
-	Problems []DashboardProblem `json:"problems"`
-	Events   []Alert            `json:"events"`
-	Drives   int                `json:"drives"`
+	Hosts     []DashboardHost           `json:"hosts"`
+	Arrays    []DashboardArray          `json:"arrays"`
+	Network   []NetworkDevice           `json:"network"`
+	Problems  []DashboardProblem        `json:"problems"`
+	Events    []Alert                   `json:"events"`
+	Drives    int                       `json:"drives"`
+	Locations map[string]DeviceLocation `json:"locations"`
 }
 
 func (s *server) getDashboardData(w http.ResponseWriter, _ *http.Request) {
 	now := time.Now()
 	s.mu.Lock()
-	data := DashboardData{Network: s.networkDevicesLocked(false), Events: append([]Alert{}, s.state.Alerts...)}
+	data := DashboardData{Network: s.networkDevicesLocked(false), Events: append([]Alert{}, s.state.Alerts...),
+		Locations: make(map[string]DeviceLocation, len(s.state.Locations))}
+	for key, pos := range s.state.Locations {
+		kind, id, _ := strings.Cut(key, ":")
+		if s.locationDeviceExists(kind, id) {
+			data.Locations[key] = pos
+		}
+	}
 	for _, r := range s.agents {
 		offline := now.Sub(r.ReceivedAt) > 120*time.Second
 		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up"}

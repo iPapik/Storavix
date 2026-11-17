@@ -30,6 +30,9 @@ jobs:
         run: |
           node --check internal/web/static/app.js
           node --check internal/web/static/dashboard.js
+          node --check internal/web/static/widget-grid.js
+          node --check internal/web/static/geo.js
+          node --check internal/web/static/syslog.js
       - name: Windows PowerShell scripts must be ASCII safe for PS5.1
         run: |
           python3 - <<'PYCI'

@@ -24,17 +24,19 @@ import (
 	"net/mail"
 	"net/smtp"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/iPapik/Storavix/internal/telemetry"
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.11"
+const version = "0.2.12"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -57,14 +59,16 @@ type Alert struct {
 	Delivered bool      `json:"delivered"`
 }
 type State struct {
-	AdminUser       string           `json:"adminUser"`
-	Salt            string           `json:"salt"`
-	PassHash        string           `json:"passHash"`
-	Mail            MailConfig       `json:"mail"`
-	EncryptedSecret string           `json:"encryptedSecret"`
-	Alerts          []Alert          `json:"alerts"`
-	Dashboard       *DashboardConfig `json:"dashboard,omitempty"`
-	Network         []NetworkConfig  `json:"network,omitempty"`
+	AdminUser       string                    `json:"adminUser"`
+	Salt            string                    `json:"salt"`
+	PassHash        string                    `json:"passHash"`
+	Mail            MailConfig                `json:"mail"`
+	EncryptedSecret string                    `json:"encryptedSecret"`
+	Alerts          []Alert                   `json:"alerts"`
+	Dashboard       *DashboardConfig          `json:"dashboard,omitempty"`
+	Network         []NetworkConfig           `json:"network,omitempty"`
+	Syslog          SyslogConfig              `json:"syslog,omitempty"`
+	Locations       map[string]DeviceLocation `json:"locations,omitempty"`
 }
 type server struct {
 	mu             sync.Mutex
@@ -79,6 +83,8 @@ type server struct {
 	deletedAgents  map[string]bool
 	networkSamples map[string]networkSample
 	networkWake    chan struct{}
+	syslog         *syslogReceiver
+	geocoder       geoSearch
 }
 
 func main() {
@@ -89,9 +95,15 @@ func main() {
 	if done {
 		return
 	}
+	if err := serve(dir, addr); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func serve(dir, addr string) error {
 	s, err := newServer(dir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Printf("Storavix %s listening on %s", version, addr)
 	for _, u := range accessURLs(addr) {
@@ -100,10 +112,37 @@ func main() {
 	if !isLoopbackBind(addr) {
 		log.Print("SECURITY: LAN access uses HTTP; restrict firewall access to trusted subnets and deploy HTTPS reverse proxy before untrusted networks")
 	}
-	go s.pollNetwork(context.Background())
+	receiver, err := openSyslog(dir)
+	if err != nil {
+		log.Printf("open syslog database: %v", err)
+	} else {
+		s.syslog = receiver
+		defer receiver.close()
+		if err := receiver.configure(s.state.Syslog.defaults(), nil); err != nil {
+			receiver.listenError = err.Error()
+			log.Printf("start syslog listeners: %v", err)
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go s.pollNetwork(ctx)
 	h := s.routes()
 	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
-	log.Fatal(srv.ListenAndServe())
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if srv.Shutdown(shutdown) != nil {
+			_ = srv.Close()
+		}
+	}()
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	<-shutdownDone
+	return nil
 }
 
 func env(k, d string) string {
@@ -310,6 +349,13 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/summary", s.requireAuth(s.summary))
 	mux.HandleFunc("GET /api/settings/mail", s.requireAuth(s.getMail))
 	mux.HandleFunc("PUT /api/settings/mail", s.requireAuth(s.setMail))
+	mux.HandleFunc("GET /api/settings/syslog", s.requireAuth(s.getSyslogSettings))
+	mux.HandleFunc("PUT /api/settings/syslog", s.requireAuth(s.putSyslogSettings))
+	mux.HandleFunc("GET /api/syslog", s.requireAuth(s.syslogMessages))
+	mux.HandleFunc("PUT /api/locations/{kind}/{id}", s.requireAuth(s.saveLocation))
+	mux.HandleFunc("DELETE /api/locations/{kind}/{id}", s.requireAuth(s.saveLocation))
+	mux.HandleFunc("POST /api/locations/search", s.requireAuth(s.findLocation))
+
 	mux.HandleFunc("POST /api/settings/mail/test", s.requireAuth(s.testMail))
 	mux.HandleFunc("GET /api/alerts", s.requireAuth(s.alerts))
 	mux.HandleFunc("POST /api/alerts/test", s.requireAuth(s.testAlert))
@@ -332,7 +378,7 @@ func (s *server) routes() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; base-uri 'none'; frame-ancestors 'none'")
 		if r.Method != "GET" && r.Method != "HEAD" {
 			if origin := r.Header.Get("Origin"); origin != "" {
 				u, err := http.NewRequest("GET", origin, nil)

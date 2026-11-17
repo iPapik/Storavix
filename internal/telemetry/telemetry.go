@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.2.11"
+const AgentVersion = "0.2.12"
 const MaxReports = 500
 const MaxReportBytes = 1024 * 1024
 

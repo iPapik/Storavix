@@ -39,9 +39,10 @@ const pages = {
   storage: ['RAID и диски', 'Контроллеры, массивы и физические накопители'],
   network: ['Коммутаторы', 'Доступность, состояние интерфейсов и трафик'],
   maps: ['Карты', 'Топология серверов и коммутаторов'],
-  syslog: ['Централизованный Syslog', ''],
+  syslog: ['Журнал Syslog', ''],
+  geomap: ['Геокарта оборудования', ''],
   alerts: ['События и алерты', ''],
-  settings: ['Настройки', 'Почтовые уведомления и безопасность']
+  settings: ['Настройки', 'SMTP, Syslog и безопасность']
 };
 let currentRoute = {page: 'overview', id: ''};
 
@@ -65,13 +66,13 @@ function showRoute() {
   currentRoute = route;
   const {page, id} = route;
   document.querySelectorAll('[data-page]').forEach(button => {
-    const active = button.dataset.page === (page === 'server' ? 'servers' : page);
+    const active = button.dataset.page === ({server: 'servers', geomap: 'maps'}[page] || page);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   });
   document.querySelectorAll('.page-view').forEach(section =>
-    section.classList.toggle('hidden', section.id !== (page === 'syslog' ? 'generic' : page) + '-view'));
+    section.classList.toggle('hidden', section.id !== page + '-view'));
   document.querySelector('.heading').classList.toggle('hidden', page === 'servers');
   const [title, description] = pages[page];
   setPageTitle(title);
@@ -79,11 +80,13 @@ function showRoute() {
   $('page-description').classList.toggle('hidden', !description);
   document.querySelector('.sidebar').classList.remove('open');
   if (old.page !== page || old.id !== id) window.scrollTo(0, 0);
-  if (page === 'overview' || page === 'maps' || page === 'alerts') loadMonitoring();
+  if (page === 'geomap' && (old.page !== page || old.id !== id)) selectGeoRoute(id);
+  if (page === 'overview' || page === 'maps' || page === 'geomap' || page === 'alerts') loadMonitoring();
   if (page === 'servers' || page === 'storage') loadSystems();
   if (page === 'server') loadServer(id, true);
   if (page === 'network') loadNetwork();
-  if (page === 'settings') loadMail();
+  if (page === 'settings') showSettings(id);
+  if (page === 'syslog') openSyslogJournal(old.page !== page);
 }
 
 function setPageTitle(title) {
@@ -126,7 +129,20 @@ document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',(
 $('menu-toggle').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
 $('alert-refresh').addEventListener('click', () => loadMonitoring());
 window.addEventListener('hashchange', showRoute);
-document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));$('smtp-settings').classList.toggle('hidden',b.dataset.tab!=='smtp');$('account-settings').classList.toggle('hidden',b.dataset.tab!=='account')}));
+function showSettings(name) {
+  const tab = ['smtp', 'syslog', 'account'].includes(name) ? name : 'smtp';
+  document.querySelectorAll('[data-tab]').forEach(button => {
+    const active = button.dataset.tab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    $(button.dataset.tab + '-settings').classList.toggle('hidden', !active);
+  });
+  if (tab === 'smtp') loadMail();
+  if (tab === 'syslog') loadSyslogSettings();
+}
+
+document.querySelectorAll('[data-tab]').forEach(button =>
+  button.addEventListener('click', () => goto('settings', button.dataset.tab)));
 $('mail-auth').addEventListener('change',mailMode);$('mail-security').addEventListener('change',()=>{if($('mail-security').value==='tls'&&$('mail-port').value==='587')$('mail-port').value=465;if($('mail-security').value==='starttls'&&$('mail-port').value==='465')$('mail-port').value=587;mailMode()});
 $('smtp-form').addEventListener('submit',async e=>{e.preventDefault();const c={host:$('mail-host').value.trim(),port:Number($('mail-port').value),security:$('mail-security').value,auth:$('mail-auth').value,username:$('mail-username').value.trim(),password:$('mail-password').value,from:$('mail-from').value.trim(),recipients:$('mail-recipients').value.trim(),caFile:$('mail-ca').value.trim(),hasSecret:false};try{await api('/api/settings/mail',{method:'PUT',body:JSON.stringify(c)});msg('smtp-msg','Настройки сохранены. Можно отправить тестовое письмо.');$('mail-password').value='';await loadMail()}catch(e){msg('smtp-msg',e.message,true)}});
 async function sendTest(endpoint){msg('smtp-msg','Отправляем письмо...');try{await api(endpoint,{method:'POST'});msg('smtp-msg','Письмо успешно отправлено. Проверьте входящие и папку «Спам».')}catch(e){msg('smtp-msg',e.message,true)}}
@@ -238,7 +254,7 @@ function renderServer(r) {
       remove.disabled = false;
     }
   });
-  actions.append(remove);
+  actions.append(routeLink('Местоположение', 'geomap', r.id), remove);
   d.replaceChildren(metrics, files, storage, actions);
 }
 

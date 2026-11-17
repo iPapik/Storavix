@@ -3,7 +3,8 @@
 const widgetTypes = {
   raid: ['Состояние RAID', 'drives', 'storage'],
   network: ['Коммутаторы', 'network', 'network'],
-  map: ['Карта сети', 'network', 'maps'],
+  map: ['Схема сети', 'network', 'maps'],
+  geomap: ['Геокарта оборудования', 'network', 'geomap'],
   problems: ['Активные алармы', 'bell', 'alerts'],
   events: ['Журнал уведомлений', 'logs', 'alerts'],
   servers: ['Состояние серверов', 'servers', 'servers']
@@ -14,7 +15,7 @@ const deviceStates = {
   pending: ['Ожидание опроса', 'grey'], disabled: ['Отключён', 'grey'], unknown: ['Неизвестно', 'grey']
 };
 
-const emptyMonitoring = {hosts: [], arrays: [], network: [], problems: [], events: [], drives: 0};
+const emptyMonitoring = {hosts: [], arrays: [], network: [], problems: [], events: [], locations: {}};
 let monitoring = {...emptyMonitoring};
 let configuration;
 let dashboardDraft;
@@ -96,6 +97,9 @@ async function loadMonitoring(eventOrRefresh = true) {
         if (refreshEditors || !dashboardDraft) renderOverview();
         if ($('dashboard-msg').classList.contains('error') && !dashboardDraft) msg('dashboard-msg');
         break;
+      case 'geomap':
+        renderGeoPage();
+        break;
       case 'maps':
         if (!mapDrag && (refreshEditors || !mapDraft)) renderMaps();
         break;
@@ -109,6 +113,7 @@ async function loadMonitoring(eventOrRefresh = true) {
   } catch (error) {
     if (currentRoute.page === 'overview') msg('dashboard-msg', error.message, true);
     if (currentRoute.page === 'maps') msg('map-msg', error.message, true);
+    if (currentRoute.page === 'geomap') msg('geo-msg', error.message, true);
     if (currentRoute.page === 'alerts') $('active-alerts').replaceChildren(emptyNote(error.message));
   } finally {
     monitoringPending = false;
@@ -129,7 +134,7 @@ function action(label, handler, className = 'text-button') {
 function renderOverview() {
   const stats = [
     ['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers'],
-    ['RAID-массивы', monitoring.arrays.length, 'drives'], ['Физические диски', monitoring.drives, 'drive'],
+    ['Коммутаторы', monitoring.network.length, 'network'],
     ['Активные алармы', monitoring.problems.length, 'bell']
   ];
   $('overview-stats').replaceChildren(...stats.map(([name, value, icon]) => {
@@ -154,44 +159,39 @@ function renderOverview() {
 
   const grid = $('widget-grid');
   grid.replaceChildren();
+  grid.classList.toggle('widget-grid-editing', editing);
+  clearRemovedGeoWidgets(config.widgets);
   if (!config.widgets.length) grid.append(emptyNote('На обзоре пока нет виджетов.'));
-  config.widgets.forEach((widget, index) => {
+  const positions = layoutWidgets(config.widgets);
+  const ordered = [...config.widgets].filter(widget => positions.has(widget.id)).sort((a, b) => {
+    const x = positions.get(a.id), y = positions.get(b.id);
+    return x.y - y.y || x.x - y.x;
+  });
+  for (const widget of ordered) {
     const [title, icon, page] = widgetTypes[widget.type];
     const panel = document.createElement('article');
-    panel.className = 'panel dashboard-widget' + (widget.wide ? ' widget-wide' : '');
+    panel.className = 'panel dashboard-widget';
+    panel.dataset.widget = widget.id;
+    drawWidgetPosition(panel, positions.get(widget.id));
     const header = document.createElement('header');
     const heading = makeText('h3', title);
     heading.prepend(makeIcon(icon));
     header.append(heading);
     if (!editing) header.append(routeLink('Открыть →', page, widget.mapId));
     else {
-      const controls = document.createElement('div');
-      controls.className = 'widget-actions';
-      const move = delta => {
-        const other = index + delta;
-        const list = dashboardDraft.widgets;
-        [list[index], list[other]] = [list[other], list[index]];
+      header.prepend(widgetHandle(widget, panel, false));
+      header.append(action('Удалить', () => {
+        dashboardDraft.widgets = dashboardDraft.widgets.filter(item => item.id !== widget.id);
         renderOverview();
-      };
-      const left = action('←', () => move(-1));
-      left.disabled = index === 0;
-      left.setAttribute('aria-label', 'Переместить виджет выше');
-      const right = action('→', () => move(1));
-      right.disabled = index === config.widgets.length - 1;
-      right.setAttribute('aria-label', 'Переместить виджет ниже');
-      controls.append(left, right, action(widget.wide ? 'Половина' : 'На всю ширину', () => {
-        widget.wide = !widget.wide;
-        renderOverview();
-      }), action('Удалить', () => {
-        dashboardDraft.widgets.splice(index, 1);
-        renderOverview();
-      }));
-      header.append(controls);
+      }, 'widget-remove'));
+      panel.append(widgetHandle(widget, panel, true));
     }
-    panel.append(header);
-    renderWidget(panel, widget, config);
+    const body = document.createElement('div');
+    body.className = 'widget-body' + (widget.type === 'geomap' ? ' widget-geo' : '');
+    panel.append(header, body);
+    renderWidget(body, widget, config);
     grid.append(panel);
-  });
+  }
 }
 
 function renderWidget(panel, widget, config) {
@@ -246,6 +246,9 @@ function renderWidget(panel, widget, config) {
         return row;
       }, 'Ожидание отчётов агентов.');
       break;
+    case 'geomap':
+      panel.append(geoMap('widget-' + widget.id));
+      break;
     case 'map': {
       const map = config.maps.find(entry => entry.id === widget.mapId);
       panel.append(makeText('p', map.name, 'muted widget-map-name'), buildMap(map));
@@ -270,6 +273,8 @@ $('dashboard-edit').addEventListener('click', () => {
   if (retained) return;
   mapDraft = null;
   dashboardDraft = cloneJSON(configuration);
+  const positions = layoutWidgets(dashboardDraft.widgets);
+  for (const widget of dashboardDraft.widgets) widget.layout = positions.get(widget.id);
   msg('dashboard-msg');
   renderOverview();
 });
@@ -300,8 +305,11 @@ $('widget-form').addEventListener('submit', event => {
   event.preventDefault();
   if (!dashboardDraft || $('widget-add').disabled) return;
   const type = $('widget-type').value;
-  const widget = {id: newConfigID(), type, wide: type === 'map'};
+  const widget = {id: newConfigID(), type, wide: type === 'map' || type === 'geomap'};
   if (type === 'map') widget.mapId = $('widget-map').value;
+  const positions = layoutWidgets([...dashboardDraft.widgets, widget]);
+  widget.layout = positions.get(widget.id);
+  if (!widget.layout) { msg('dashboard-msg', 'В сетке нет свободного места для виджета.', true); return; }
   dashboardDraft.widgets.push(widget);
   renderOverview();
 });
@@ -593,7 +601,7 @@ function renderNetwork() {
     }
     const controls = document.createElement('div');
     controls.className = 'toolbar-actions';
-    controls.append(action('Изменить', () => editNetwork(device), 'secondary small'),
+    controls.append(routeLink('Местоположение', 'geomap', device.id), action('Изменить', () => editNetwork(device), 'secondary small'),
       action('Удалить', () => removeNetwork(device), 'text-button'));
     details.append(controls);
     panel.append(details);
@@ -677,7 +685,8 @@ $('network-check').addEventListener('click', async () => {
 setInterval(() => {
   if (!session || document.hidden) return;
   const {page, id} = currentRoute;
-  if (page === 'overview' || page === 'maps' || page === 'alerts') loadMonitoring(false);
+  if (page === 'overview' || page === 'maps' || page === 'geomap' || page === 'alerts') loadMonitoring(false);
+  if (page === 'syslog' && !syslogCursor) loadSyslogJournal(0, true);
   if (page === 'server') loadServer(id);
   if (page === 'servers' || page === 'storage') loadSystems();
   if (page === 'network') loadNetwork();
