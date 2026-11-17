@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -33,7 +34,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.10"
+const version = "0.2.11"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -56,24 +57,28 @@ type Alert struct {
 	Delivered bool      `json:"delivered"`
 }
 type State struct {
-	AdminUser       string     `json:"adminUser"`
-	Salt            string     `json:"salt"`
-	PassHash        string     `json:"passHash"`
-	Mail            MailConfig `json:"mail"`
-	EncryptedSecret string     `json:"encryptedSecret"`
-	Alerts          []Alert    `json:"alerts"`
+	AdminUser       string           `json:"adminUser"`
+	Salt            string           `json:"salt"`
+	PassHash        string           `json:"passHash"`
+	Mail            MailConfig       `json:"mail"`
+	EncryptedSecret string           `json:"encryptedSecret"`
+	Alerts          []Alert          `json:"alerts"`
+	Dashboard       *DashboardConfig `json:"dashboard,omitempty"`
+	Network         []NetworkConfig  `json:"network,omitempty"`
 }
 type server struct {
-	mu            sync.Mutex
-	state         State
-	dataDir       string
-	key           []byte
-	sessions      map[string]time.Time
-	loginAttempts map[string][]time.Time
-	mailLast      time.Time
-	secureCookies bool
-	agents        map[string]telemetry.Report
-	deletedAgents map[string]bool
+	mu             sync.Mutex
+	state          State
+	dataDir        string
+	key            []byte
+	sessions       map[string]time.Time
+	loginAttempts  map[string][]time.Time
+	mailLast       time.Time
+	secureCookies  bool
+	agents         map[string]telemetry.Report
+	deletedAgents  map[string]bool
+	networkSamples map[string]networkSample
+	networkWake    chan struct{}
 }
 
 func main() {
@@ -95,6 +100,7 @@ func main() {
 	if !isLoopbackBind(addr) {
 		log.Print("SECURITY: LAN access uses HTTP; restrict firewall access to trusted subnets and deploy HTTPS reverse proxy before untrusted networks")
 	}
+	go s.pollNetwork(context.Background())
 	h := s.routes()
 	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
 	log.Fatal(srv.ListenAndServe())
@@ -137,7 +143,7 @@ func newServer(dir string) (*server, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}, deletedAgents: map[string]bool{}}
+	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}, deletedAgents: map[string]bool{}, networkSamples: make(map[string]networkSample), networkWake: make(chan struct{}, 1)}
 	keyPath := filepath.Join(dir, "master.key")
 	if keyEnv := os.Getenv("STORAVIX_MASTER_KEY"); keyEnv != "" {
 		key, e := base64.StdEncoding.DecodeString(keyEnv)
@@ -256,7 +262,10 @@ func problem(w http.ResponseWriter, status int, msg string) {
 	sendJSON(w, status, map[string]string{"error": msg})
 }
 func decodeJSON(r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, 32768)
+	return decodeJSONLimit(r, v, 32768)
+}
+func decodeJSONLimit(r *http.Request, v any, limit int64) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, limit)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if e := d.Decode(v); e != nil {
@@ -306,9 +315,20 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/alerts/test", s.requireAuth(s.testAlert))
 	mux.HandleFunc("POST /api/account/password", s.requireAuth(s.changePassword))
 	mux.HandleFunc("GET /api/agents", s.requireAuth(s.getAgents))
+	mux.HandleFunc("GET /api/agents/{id}", s.requireAuth(s.getAgent))
+	mux.HandleFunc("GET /api/dashboard", s.requireAuth(s.getDashboardData))
+	mux.HandleFunc("GET /api/dashboard/config", s.requireAuth(s.getDashboardConfig))
+	mux.HandleFunc("PUT /api/dashboard/config", s.requireAuth(s.putDashboardConfig))
+	mux.HandleFunc("GET /api/network", s.requireAuth(s.getNetwork))
+	mux.HandleFunc("PUT /api/network/{id}", s.requireAuth(s.putNetworkDevice))
+	mux.HandleFunc("DELETE /api/network/{id}", s.requireAuth(s.deleteNetworkDevice))
+	mux.HandleFunc("POST /api/network/check", s.requireAuth(s.requestNetworkPoll))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.requireAuth(s.deleteAgent))
 	mux.HandleFunc("POST /api/agent/report", s.ingestAgent)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" || r.URL.Path == "/style.css" || strings.HasSuffix(r.URL.Path, ".js") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -388,9 +408,10 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 	mailReady := s.state.Mail.Host != "" && s.state.Mail.From != "" && s.state.Mail.Recipients != ""
 	hosts := len(s.agents)
 	arrays, drives := s.storageCounts()
+	network := len(s.state.Network)
 	online := s.onlineCount()
 	s.mu.Unlock()
-	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": drives, "network": 0, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
+	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": drives, "network": network, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
 }
 func (s *server) getMail(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()

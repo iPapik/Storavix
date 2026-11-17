@@ -27,7 +27,9 @@ jobs:
           print('Storavix version consistency:',v)
           PY
       - name: Browser JavaScript syntax
-        run: node --check internal/web/static/app.js
+        run: |
+          node --check internal/web/static/app.js
+          node --check internal/web/static/dashboard.js
       - name: Windows PowerShell scripts must be ASCII safe for PS5.1
         run: |
           python3 - <<'PYCI'

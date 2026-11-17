@@ -26,34 +26,106 @@ trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>',
 info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7h.01"/>'
 };
 function makeIcon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','ui-icon');svg.setAttribute('aria-hidden','true');svg.innerHTML=ICONS[name]||ICONS.info;return svg}
-document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','logs','bell','settings'][i]||'info')));
-document.querySelectorAll('.stat-icon').forEach((el,i)=>el.replaceChildren(makeIcon(['servers','drives','drive','bell'][i]||'info')));
+document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','network','logs','bell','settings'][i]||'info')));
 document.querySelectorAll('.empty-icon').forEach((el,i)=>el.replaceChildren(makeIcon(i===0?'drives':'logs')));
 $('menu-toggle').replaceChildren(makeIcon('menu'));
 $('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode(' Обновить'));
 
 let session=false;
-const pages={overview:['Обзор инфраструктуры','Единый центр состояния серверов, хранилищ и сетевых устройств','OVERVIEW'],servers:['Все системы','Нажмите на систему для просмотра дополнительной информации.','SERVERS'],storage:['RAID и диски','Контроллеры, массивы и физические накопители','STORAGE'],network:['Сетевые устройства','SNMP, интерфейсы, порты и сетевой трафик','NETWORK'],syslog:['Централизованный Syslog','Журналы и события всех устройств в одном месте','SYSLOG'],alerts:['События и алерты','История событий и доставка уведомлений','ALERTS'],settings:['Настройки','Почтовый сервер, безопасность и управление конфигурацией','SETTINGS']};
-const generic={servers:['memory','Серверы появятся после подключения агентов','Установите агенты Storavix на Windows и Linux. Они будут отправлять показатели CPU, RAM, сети и доступности.',['Windows / Linux','Показатели CPU и RAM','Установленные агенты','Обнаружение ОС']],network:['network','Мониторинг сетевой инфраструктуры','Добавим устройства по SNMPv3, карты интерфейсов, показатели трафика и уведомления об ошибках портов.',['SNMPv3','Коммутаторы','Маршрутизаторы','Трафик интерфейсов']],syslog:['logs','Централизованный сбор Syslog','Приём журналов с серверов, коммутаторов и маршрутизаторов: UDP, TCP, TLS с поиском и фильтрами.',['Syslog UDP / TCP','Syslog TLS','Поиск событий','Правила алертов']]};
+const pages = {
+  overview: ['Обзор инфраструктуры', ''],
+  servers: ['Все системы', ''],
+  server: ['Данные сервера', ''],
+  storage: ['RAID и диски', 'Контроллеры, массивы и физические накопители'],
+  network: ['Коммутаторы', 'Доступность, состояние интерфейсов и трафик'],
+  maps: ['Карты', 'Топология серверов и коммутаторов'],
+  syslog: ['Централизованный Syslog', ''],
+  alerts: ['События и алерты', ''],
+  settings: ['Настройки', 'Почтовые уведомления и безопасность']
+};
+let currentRoute = {page: 'overview', id: ''};
+
+function routeFromURL() {
+  const [page, id = ''] = location.hash.slice(1).split('/');
+  if (!Object.hasOwn(pages, page)) return {page: 'overview', id: ''};
+  if (page === 'server' && !/^[a-f0-9]{32}$/.test(id)) return {page: 'servers', id: ''};
+  return {page, id: /^[a-zA-Z0-9_-]{1,48}$/.test(id) ? id : ''};
+}
+
+function goto(page, id = '') {
+  const hash = '#' + page + (id ? '/' + id : '');
+  if (location.hash !== hash) location.hash = hash;
+  else showRoute();
+}
+
+function showRoute() {
+  if (!session) return;
+  const old = currentRoute;
+  const route = routeFromURL();
+  currentRoute = route;
+  const {page, id} = route;
+  document.querySelectorAll('[data-page]').forEach(button => {
+    const active = button.dataset.page === (page === 'server' ? 'servers' : page);
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.page-view').forEach(section =>
+    section.classList.toggle('hidden', section.id !== (page === 'syslog' ? 'generic' : page) + '-view'));
+  document.querySelector('.heading').classList.toggle('hidden', page === 'servers');
+  const [title, description] = pages[page];
+  setPageTitle(title);
+  $('page-description').textContent = description;
+  $('page-description').classList.toggle('hidden', !description);
+  document.querySelector('.sidebar').classList.remove('open');
+  if (old.page !== page || old.id !== id) window.scrollTo(0, 0);
+  if (page === 'overview' || page === 'maps' || page === 'alerts') loadMonitoring();
+  if (page === 'servers' || page === 'storage') loadSystems();
+  if (page === 'server') loadServer(id, true);
+  if (page === 'network') loadNetwork();
+  if (page === 'settings') loadMail();
+}
+
+function setPageTitle(title) {
+  $('page-title').textContent = title;
+  $('breadcrumb').textContent = title;
+  document.title = title + ' · Storavix';
+}
+
 async function api(url,opts={}){let r;try{r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json','X-Storavix-Request':'1',...(opts.headers||{})},...opts});}catch(e){throw new Error('Нет соединения с сервером Storavix')}let j;try{j=await r.json()}catch(_){throw new Error('Неверный ответ сервера')}if(!r.ok){if(r.status===401){showAuth();throw new Error('Сессия истекла. Войдите заново.')}throw new Error(j.error||`HTTP ${r.status}`)}return j}
-function msg(id,text,error=false){const el=$(id);el.textContent=text;el.classList.toggle('error',error)}
-function showAuth(){$('shell').classList.add('hidden');$('login').classList.remove('hidden');session=false}
-function showShell(){$('login').classList.add('hidden');$('shell').classList.remove('hidden');session=true;goto('overview')}
-function goto(p){if(!pages[p])return;document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));['overview','generic','alerts','settings','servers','storage'].forEach(n=>$(n+'-view').classList.add('hidden'));if(['network','syslog'].includes(p)){$('generic-view').classList.remove('hidden');const c=generic[p];$('generic-symbol').replaceChildren(makeIcon(c[0]));$('generic-title').textContent=c[1];$('generic-description').textContent=c[2];$('generic-features').replaceChildren(...c[3].map(x=>{const v=document.createElement('span');v.textContent=x;return v}))}else{$(p+'-view').classList.remove('hidden')}
-document.querySelector('.heading').classList.toggle('hidden',p==='servers');$('page-title').textContent=pages[p][0];$('page-description').textContent=pages[p][1];$('breadcrumb').textContent=pages[p][0];$('eyebrow-page').textContent=pages[p][2];document.querySelector('.sidebar').classList.remove('open');if(p==='overview')loadOverview();if(p==='servers'||p==='storage')loadSystems();if(p==='alerts')loadAlerts();if(p==='settings')loadMail()}
-async function loadOverview(){try{const a=await api('/api/summary');['hosts','arrays','drives','events'].forEach(n=>$('metric-'+n).textContent=a[n]);$('version').textContent='v'+a.version.replace('-dev','');renderStorageSummary(a);document.querySelector('.staging').textContent=a.hosts?'● Подключено агентов: '+a.hosts:'● Ожидание агентов';document.querySelector('.onboarding h3').textContent=a.hosts?'Подключены агенты Storavix':'Storavix готов к работе';document.querySelector('.onboarding p').textContent=a.hosts?'Сбор метрик CPU, RAM, диска и сети активен. Подробные сведения доступны в разделе «Все системы».':'Веб-интерфейс запущен. Установите агент Storavix на Windows или Linux и введите регистрационный токен.';$('mail-status').textContent=a.mailConfigured?'Настроено':'Не настроено';$('mail-status').className='tag '+(a.mailConfigured?'green':'grey');$('mail-dot').className='component-bullet '+(a.mailConfigured?'success':'idle');const list=await api('/api/alerts');recent(list)}catch(e){console.warn(e.message)}}
-function recent(events){if(!events.length)return;const box=$('recent-alerts');box.className='';box.replaceChildren(...events.slice(0,4).map(ev=>eventNode(ev)))}
-function eventNode(ev){const row=document.createElement('div');row.className='alert-row';const date=document.createElement('span');date.className='alert-date';date.textContent=new Date(ev.createdAt).toLocaleString('ru-RU');const info=document.createElement('div');const title=document.createElement('strong');title.textContent=ev.subject;const sub=document.createElement('small');sub.textContent=ev.detail;info.append(title,sub);const status=document.createElement('span');status.className=ev.delivered?'sent':'failed';status.textContent=ev.delivered?'Отправлено':'Ошибка отправки';row.append(date,info,status);return row}
-async function loadAlerts(){try{const ev=await api('/api/alerts');const list=$('alerts-list');list.replaceChildren();if(!ev.length){list.innerHTML='<div class="empty-compact"><span class="empty-icon"></span><strong>История событий пуста</strong><p>Система пока не получала события. Тестовую отправку можно проверить в настройках.</p></div>';list.querySelector('.empty-icon').replaceChildren(makeIcon('bell'));return}list.append(...ev.map(eventNode))}catch(e){console.warn(e.message)}}
+function msg(id,text='',error=false){const el=$(id);el.textContent=text;el.classList.toggle('error',error)}
+function showAuth() {
+  $('shell').classList.add('hidden');
+  $('login').classList.remove('hidden');
+  session = false;
+  $('network-community').value = '';
+}
+function showShell() {
+  $('login').classList.add('hidden');
+  $('shell').classList.remove('hidden');
+  session = true;
+  showRoute();
+}
+function eventNode(event) {
+  const row = document.createElement('div');
+  row.className = 'event-list-row';
+  const info = document.createElement('div');
+  info.append(makeText('strong', event.subject), makeText('small', event.detail, 'muted'));
+  const date = makeText('time', new Date(event.createdAt).toLocaleString('ru-RU'), 'muted');
+  date.dateTime = event.createdAt;
+  row.append(info, date, makeText('span', event.delivered ? 'Отправлено' : 'Ошибка отправки',
+    'tag ' + (event.delivered ? 'green' : 'storage-warning')));
+  return row;
+}
 async function loadMail(){try{const c=await api('/api/settings/mail');$('mail-host').value=c.host||'';$('mail-port').value=c.port||587;$('mail-security').value=c.security||'starttls';$('mail-auth').value=c.auth||'plain';$('mail-username').value=c.username||'';$('mail-from').value=c.from||'';$('mail-recipients').value=c.recipients||'';$('mail-ca').value=c.caFile||'';$('mail-password').value='';$('mail-password').placeholder=c.hasSecret?'Секрет сохранён — оставьте пустым':'Введите пароль или access token';mailMode()}catch(e){msg('smtp-msg',e.message,true)}}
 function mailMode(){const a=$('mail-auth').value;const none=a==='none';$('mail-username').disabled=none;$('mail-password').disabled=none;if($('mail-security').value==='none'&&!none){$('mail-auth').value='none';$('mail-username').disabled=true;$('mail-password').disabled=true}if($('mail-security').value==='none'&&$('mail-port').value==='587')$('mail-port').value='25'}
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();msg('login-msg','Выполняется вход...');try{await api('/api/login',{method:'POST',body:JSON.stringify({username:$('login-user').value,password:$('login-pass').value})});$('login-pass').value='';msg('login-msg','');showShell()}catch(err){msg('login-msg',err.message,true)}});
 $('logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'})}finally{showAuth()}});
 document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.page)));
 document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.goto)));
-$('open-settings').addEventListener('click',()=>goto('settings'));
 $('menu-toggle').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
-$('alert-refresh').addEventListener('click',loadAlerts);
+$('alert-refresh').addEventListener('click', () => loadMonitoring());
+window.addEventListener('hashchange', showRoute);
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));$('smtp-settings').classList.toggle('hidden',b.dataset.tab!=='smtp');$('account-settings').classList.toggle('hidden',b.dataset.tab!=='account')}));
 $('mail-auth').addEventListener('change',mailMode);$('mail-security').addEventListener('change',()=>{if($('mail-security').value==='tls'&&$('mail-port').value==='587')$('mail-port').value=465;if($('mail-security').value==='starttls'&&$('mail-port').value==='465')$('mail-port').value=587;mailMode()});
 $('smtp-form').addEventListener('submit',async e=>{e.preventDefault();const c={host:$('mail-host').value.trim(),port:Number($('mail-port').value),security:$('mail-security').value,auth:$('mail-auth').value,username:$('mail-username').value.trim(),password:$('mail-password').value,from:$('mail-from').value.trim(),recipients:$('mail-recipients').value.trim(),caFile:$('mail-ca').value.trim(),hasSecret:false};try{await api('/api/settings/mail',{method:'PUT',body:JSON.stringify(c)});msg('smtp-msg','Настройки сохранены. Можно отправить тестовое письмо.');$('mail-password').value='';await loadMail()}catch(e){msg('smtp-msg',e.message,true)}});
@@ -61,7 +133,7 @@ async function sendTest(endpoint){msg('smtp-msg','Отправляем пись�
 $('test-email').addEventListener('click',()=>sendTest('/api/settings/mail/test'));
 $('test-alert').addEventListener('click',()=>sendTest('/api/alerts/test'));
 $('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');setTimeout(showAuth,900)}catch(err){msg('password-msg',err.message,true)}});
-(async function boot(){try{const s=await api('/api/session');if(s.authenticated)showShell();else showAuth()}catch(e){showAuth();msg('login-msg',e.message,true)}})();
+
 
 const panelAddress=document.getElementById('panel-address');if(panelAddress)panelAddress.textContent=window.location.host;
 
@@ -77,66 +149,116 @@ const fmtRate=x=>typeof x!=='number'?'—':x>=1048576?(x/1048576).toLocaleString
 const fmtUptime=x=>typeof x!=='number'?'—':x>=86400?Math.floor(x/86400)+' дн.':x>=3600?Math.floor(x/3600)+' ч.':Math.floor(x/60)+' мин.';
 function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
 function stateFor(r){return Date.now()-Date.parse(r.receivedAt)>120000?'offline':storageHasWarning(r)?'warn':'online'}
-function makeSystemCard(r){const status=stateFor(r);const card=document.createElement('article');card.className='system-card';card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Подробнее о сервере '+r.hostname);const head=document.createElement('div');head.className='system-head';const name=document.createElement('b');name.textContent=r.hostname;const dot=document.createElement('i');dot.className='system-dot '+status;head.append(dot,name);const state=document.createElement('span');state.className='system-state';state.textContent=status==='online'?'● Онлайн':status==='warn'?'RAID: внимание':'● Нет связи';head.append(state);card.append(head);
+function makeSystemCard(r){const status=stateFor(r);const card=document.createElement('a');card.className='system-card';card.href='#server/'+r.id;card.setAttribute('aria-label','Подробнее о сервере '+r.hostname);const head=document.createElement('div');head.className='system-head';const name=document.createElement('b');name.textContent=r.hostname;const dot=document.createElement('i');dot.className='system-dot '+status;head.append(dot,name);const state=document.createElement('span');state.className='system-state';state.textContent=status==='online'?'● Онлайн':status==='warn'?'RAID: внимание':'● Нет связи';head.append(state);card.append(head);
  const m=document.createElement('div');m.className='system-metrics';m.append(metricRow('cpu','ЦП:',fmtPercent(r.cpuPercent),r.cpuPercent),metricRow('memory','Память:',fmtPercent(r.memoryPercent),r.memoryPercent),metricRow('drive','Диск:',fmtPercent(r.diskPercent),r.diskPercent,90),metricRow('network','Сеть:',fmtRate(r.networkBytesPerSec)),metricRow('clock','Время работы:',fmtUptime(r.uptimeSeconds)),metricRow('drive','RAID:',fmtArrayCount(r)),metricRow('radio','Агент:',r.version||'—'));
- card.append(m);const expand=()=>showSystemDetail(r);card.addEventListener('click',expand);card.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();expand()}});return card}
+ card.append(m);return card}
 function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||x.os.toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
+let systemsPending = false;
 async function loadSystems() {
+  if (systemsPending) return;
+  systemsPending = true;
   try {
-    const agents = await api('/api/agents');
-    systemsCache = agents;
+    systemsCache = await api('/api/agents');
     renderSystems();
     renderStorage();
-    const modal = $('system-detail');
-    if (!modal.classList.contains('hidden')) {
-      const report = agents.find(agent => agent.id === modal.dataset.agent);
-      if (report && !$('detail-content').querySelector('button:disabled')) showSystemDetail(report);
-    }
   } catch (e) {
-    console.warn(e.message);
-    $('storage-servers').replaceChildren(makeText('p', e.message, 'systems-note'));
+    const root = currentRoute.page === 'servers' ? $('systems-grid') : $('storage-servers');
+    root.replaceChildren(makeText('p', e.message, 'systems-note'));
+  } finally {
+    systemsPending = false;
   }
 }
-function showSystemDetail(r) {
-  $('system-detail').dataset.agent = r.id;
-  $('detail-name').textContent = r.hostname;
+
+let serverRequest = 0;
+async function loadServer(id, first = false) {
+  const request = ++serverRequest;
+  const content = $('detail-content');
+  if (first) content.replaceChildren(makeText('p', 'Загружаем данные сервера…', 'muted'));
+  try {
+    const report = await api('/api/agents/' + encodeURIComponent(id));
+    if (currentRoute.page === 'server' && currentRoute.id === id && request === serverRequest) {
+      if (!content.querySelector('button:disabled')) renderServer(report);
+    }
+  } catch (e) {
+    if (request === serverRequest && currentRoute.page === 'server' && currentRoute.id === id) {
+      content.replaceChildren(makeText('p', e.message, 'muted'));
+    }
+  }
+}
+
+function renderServer(r) {
+  setPageTitle(r.hostname);
   const d = $('detail-content');
   const open = new Set([...d.querySelectorAll('details[open]')].map(node => node.dataset.storageKey));
-  d.replaceChildren();
-  const fields = [
-    ['Система', r.os], ['Последний опрос', new Date(r.receivedAt).toLocaleString('ru-RU')],
+  const state = stateFor(r);
+  const metrics = makeSection('Телеметрия');
+  const tiles = document.createElement('div');
+  tiles.className = 'server-tiles';
+  for (const [key, value] of [
     ['ЦП', fmtPercent(r.cpuPercent)], ['Память', fmtPercent(r.memoryPercent)],
+    ['Системный том', fmtPercent(r.diskPercent)], ['Сеть · приём и передача', fmtRate(r.networkBytesPerSec)]
+  ]) {
+    const tile = document.createElement('div');
+    tile.append(makeText('span', key, 'muted'), makeText('strong', value));
+    tiles.append(tile);
+  }
+  metrics.append(tiles);
+  for (const [key, value] of [
+    ['Состояние', state === 'offline' ? 'Нет связи' : state === 'warn' ? 'RAID: требуется внимание' : 'Онлайн'],
+    ['Операционная система', r.os], ['Последний отчёт', new Date(r.receivedAt).toLocaleString('ru-RU')],
     ['Оперативная память', r.memoryBytes ? fmtBytes(r.memoryBytes) : null],
     ['Доступно памяти', r.memoryAvailable != null ? fmtBytes(r.memoryAvailable) : null],
-    ['Заполнение системного раздела', fmtPercent(r.diskPercent)],
-    ['Сеть (приём + передача)', fmtRate(r.networkBytesPerSec)],
-    ['Средняя загрузка (1, 5, 15 мин.)', r.loadAverage?.length === 3 ? r.loadAverage.join(' / ') : null],
-    ['Время работы', fmtUptime(r.uptimeSeconds)], ['Версия агента', r.version]
-  ];
-  for (const [key, value] of fields) detailRow(d, key, value ?? '—');
+    ['Средняя нагрузка (1, 5, 15 мин.)', r.loadAverage?.length === 3 ? r.loadAverage.join(' / ') : null],
+    ['Время работы', fmtUptime(r.uptimeSeconds)], ['Версия агента', r.version], ['ID агента', r.id]
+  ]) {
+    if (value != null) detailRow(metrics, key, value);
+  }
+  const files = makeSection('Файловые системы');
   if (r.volumes?.length) {
-    d.append(makeText('h3', 'Файловые системы'));
-    d.append(dataTable(
+    files.append(dataTable(
       ['Том', 'Тип', 'Объём', 'Свободно', 'Занято'],
       r.volumes.map(v => [v.name, v.filesystem || '—', fmtBytes(v.sizeBytes), fmtBytes(v.availableBytes),
-        fmtPercent(100 * (1 - v.availableBytes / v.sizeBytes))])
+        v.sizeBytes ? fmtPercent(100 * (1 - v.availableBytes / v.sizeBytes)) : '—'])
     ));
-  }
-  d.append(makeText('h3', 'RAID и физические диски'));
-  d.append(storageInventory(r, open));
-  const actions=document.createElement('div');actions.className='detail-actions';
-const tip=document.createElement('p');tip.className='muted';tip.textContent='Удалённое устройство не сможет вернуться с прежним ID агента.';
-const del=document.createElement('button');del.type='button';del.className='danger-button';del.append(makeIcon('trash'),document.createTextNode(' Удалить устройство'));
-del.addEventListener('click',async()=>{if(!confirm('Удалить «'+r.hostname+'» из мониторинга? Для повторного подключения потребуется новый ID агента.'))return;del.disabled=true;try{await api('/api/agents/'+encodeURIComponent(r.id),{method:'DELETE'});$('system-detail').classList.add('hidden');await loadSystems()}catch(err){alert('Удаление не выполнено: '+err.message);del.disabled=false}});
-actions.append(tip,del);d.append(actions);
-$('system-detail').classList.remove('hidden')}
-$('systems-filter').addEventListener('input',renderSystems);
-$('systems-layout').addEventListener('change',()=>{const selected=$('systems-layout').value;if(!systemsLayoutModes.includes(selected))return;systemsLayout=selected;try{localStorage.setItem('storavix.systems.layout',selected)}catch(_){}renderSystems()});
-$('systems-refresh').addEventListener('click',loadSystems);
-$('system-detail-close').addEventListener('click',()=>$('system-detail').classList.add('hidden'));
-$('system-detail').addEventListener('click',e=>{if(e.target===$('system-detail'))$('system-detail').classList.add('hidden')});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')$('system-detail').classList.add('hidden')});
-setInterval(()=>{if(session&&['servers','storage'].some(p=>!$(p+'-view').classList.contains('hidden')))loadSystems()},30000);
+  } else files.append(makeText('p', 'Агент не передал сведения о томах.', 'muted'));
+  const storage = makeSection('RAID и физические диски');
+  storage.append(storageInventory(r, open));
+  const actions = document.createElement('div');
+  actions.className = 'detail-actions';
+  const remove = makeText('button', 'Удалить устройство', 'danger-button');
+  remove.type = 'button';
+  remove.addEventListener('click', async () => {
+    if (!confirm('Удалить «' + r.hostname + '» из мониторинга? Для повторного подключения потребуется новый ID агента.')) return;
+    remove.disabled = true;
+    try {
+      await api('/api/agents/' + encodeURIComponent(r.id), {method: 'DELETE'});
+      goto('servers');
+    } catch (error) {
+      alert(error.message);
+      remove.disabled = false;
+    }
+  });
+  actions.append(remove);
+  d.replaceChildren(metrics, files, storage, actions);
+}
+
+function makeSection(title) {
+  const section = document.createElement('section');
+  section.className = 'panel';
+  section.append(makeText('h2', title));
+  return section;
+}
+
+$('systems-filter').addEventListener('input', renderSystems);
+$('systems-layout').addEventListener('change', () => {
+  const selected = $('systems-layout').value;
+  if (!systemsLayoutModes.includes(selected)) return;
+  systemsLayout = selected;
+  try { localStorage.setItem('storavix.systems.layout', selected); } catch (_) {}
+  renderSystems();
+});
+$('systems-refresh').addEventListener('click', loadSystems);
+$('server-refresh').addEventListener('click', () => loadServer(currentRoute.id));
 
 function fmtArrayCount(report) {
   if (report.arrays?.length) return String(report.arrays.length);
@@ -146,7 +268,7 @@ function fmtArrayCount(report) {
 const storageStates = {
   active: ['В норме', 'green'], degraded: ['Деградация', 'storage-warning'],
   rebuilding: ['Восстановление', 'storage-warning'], inactive: ['Недоступно', 'storage-failed'],
-  unknown: ['Неизвестно', 'grey']
+  unknown: ['Неизвестно', 'grey'], stale: ['Данные устарели', 'grey']
 };
 const storageSources = {
   'linux-md': 'Linux MD', 'windows-spaces': 'Storage Spaces',
@@ -350,13 +472,6 @@ function renderStorage() {
     section.append(title, storageInventory(report, new Set(expanded)));
     return section;
   }));
-}
-
-function renderStorageSummary(summary) {
-  const root = $('overview-storage');
-  root.replaceChildren(makeText('strong', !summary.hosts ? 'Ожидание данных от агентов' :
-    summary.arrays || summary.drives ? 'Массивы: ' + summary.arrays + ' · Диски: ' + summary.drives :
-    'Пока нет данных о массивах и дисках'));
 }
 
 $('storage-filter').addEventListener('input', renderStorage);

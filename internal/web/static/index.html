@@ -1,19 +1,39 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/style.css" defer></head>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/style.css?v=0.2.11"></head>
 <body>
 <div id="login" class="login-page hidden"><div class="login-card"><div class="brand login-brand brand-integrated"><img class="login-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div><h1>Добро пожаловать</h1><p class="muted">Войдите, чтобы открыть панель мониторинга.</p><form id="login-form"><label>Имя пользователя<input id="login-user" autocomplete="username" placeholder="Логин, заданный при установке" required></label><label>Пароль<input id="login-pass" type="password" autocomplete="current-password" required></label><button class="primary wide">Войти в Storavix <span>→</span></button></form><p class="form-msg" id="login-msg"></p><p class="micro">Логин и пароль администратора задаются при первоначальной установке Storavix.</p></div></div>
 <div id="shell" class="app hidden">
  <aside class="sidebar"><div class="brand brand-integrated"><img class="sidebar-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div>
   
-  <nav id="nav"><button data-page="overview" class="active"><span class="nav-icon">▦</span> Обзор</button><button data-page="servers"><span class="nav-icon">▤</span> Все системы</button><button data-page="storage"><span class="nav-icon">▥</span> RAID и диски</button><button data-page="network"><span class="nav-icon">⌘</span> Сеть</button><button data-page="syslog"><span class="nav-icon">≡</span> Syslog</button><button data-page="alerts"><span class="nav-icon">♧</span> События и алерты</button></nav>
+  <nav id="nav" aria-label="Основное меню"><button data-page="overview" class="active"><span class="nav-icon">▦</span> Обзор</button><button data-page="servers"><span class="nav-icon">▤</span> Все системы</button><button data-page="storage"><span class="nav-icon">▥</span> RAID и диски</button><button data-page="network"><span class="nav-icon">⌘</span> Сеть</button><button data-page="maps"><span class="nav-icon">⌘</span> Карты</button><button data-page="syslog"><span class="nav-icon">≡</span> Syslog</button><button data-page="alerts"><span class="nav-icon">♧</span> События и алерты</button></nav>
   <div class="sidebar-caption sidebar-caption-bottom">УПРАВЛЕНИЕ</div><nav><button data-page="settings"><span class="nav-icon">⚙</span> Настройки</button></nav>
   <div class="sidebar-foot"><small id="version"</small><span class="opensource">Storavix · Open Source</span></div>
  </aside>
  <div class="main-wrap"><header class="topbar"><button id="menu-toggle" class="icon-button menu-toggle" aria-label="Меню">☰</button><div class="breadcrumb">Storavix <span>/</span> <b id="breadcrumb">Обзор</b></div><div class="top-actions"><span class="badge-soft" id="panel-address"></span><span class="user-avatar">A</span><button id="logout" class="text-button">Выход</button></div></header>
- <main class="content"><div class="heading"><div><span class="eyebrow">CONTROL CENTER / <span id="eyebrow-page">OVERVIEW</span></span><h1 id="page-title">Обзор инфраструктуры</h1><p id="page-description">Единый центр состояния серверов, хранилищ и сетевых устройств</p></div><div class="heading-tools"><span class="staging"><span class="online-dot"></span> Начальная установка</span></div></div>
- <section id="overview-view" class="page-view"><div class="stats"><div class="stat"><div class="stat-top"><span>Устройства</span><span class="stat-icon blue">▤</span></div><b id="metric-hosts">0</b><small>Добавленных в систему</small><div class="stat-bottom">Ожидает подключения агентов</div></div><div class="stat"><div class="stat-top"><span>RAID-массивы</span><span class="stat-icon teal">▥</span></div><b id="metric-arrays">0</b><small>Обнаруженных массивов</small><div class="stat-bottom">Данные появятся после подключения</div></div><div class="stat"><div class="stat-top"><span>Физические диски</span><span class="stat-icon purple">◫</span></div><b id="metric-drives">0</b><small>Дисков под наблюдением</small><div class="stat-bottom">Контроллеры пока не опрашиваются</div></div><div class="stat"><div class="stat-top"><span>События</span><span class="stat-icon orange">♧</span></div><b id="metric-events">0</b><small>В журнале Storavix</small><div class="stat-bottom">Тестовые уведомления учитываются</div></div></div>
- <div class="dashboard-grid"><div class="panel panel-hero"><div class="panel-title"><div><h2>Состояние инфраструктуры</h2><p>Готовность системы к мониторингу</p></div><span class="tag grey">Нет данных</span></div><div class="onboarding"><div class="onboarding-visual"><div class="pulse-ring"><img src="/storavix-mark-v2.svg" alt="Storavix"></div></div><div><span class="mini-label">НАЧАЛЬНАЯ НАСТРОЙКА</span><h3>Storavix готов к работе</h3><p>Веб-интерфейс запущен. На следующем этапе подключим агенты Windows и Linux, сбор RAID-метрик, SNMP и Syslog. Пока реальные показатели оборудования отсутствуют.</p><button class="secondary" id="open-settings">Настроить почтовые алерты →</button></div></div></div><div class="panel"><div class="panel-title"><div><h2>Компоненты системы</h2><p>Что доступно в версии 0.2</p></div></div><div class="components"><div><span class="component-bullet success"></span><span>Веб-интерфейс и API</span><span class="tag green">Работает</span></div><div><span class="component-bullet success"></span><span>Хранение конфигурации</span><span class="tag green">Работает</span></div><div><span class="component-bullet" id="mail-dot"></span><span>Почтовые уведомления</span><span class="tag" id="mail-status">Не настроено</span></div><div><span class="component-bullet idle"></span><span>Агенты Windows/Linux</span><span class="tag grey">Подключение</span></div><div><span class="component-bullet idle"></span><span>SNMP и Syslog</span><span class="tag grey">В разработке</span></div></div></div></div>
- <div class="dashboard-grid bottom-grid"><div class="panel"><div class="panel-title"><div><h2>RAID и физические диски</h2><p>Контроллеры, массивы, слоты и их состояние</p></div><button class="text-link" data-goto="storage">Открыть раздел →</button></div><div id="overview-storage" class="empty-compact"><strong>Ожидание данных от агентов</strong></div></div><div class="panel"><div class="panel-title"><div><h2>Последние события</h2><p>Системный журнал Storavix</p></div><button class="text-link" data-goto="alerts">Все события →</button></div><div id="recent-alerts" class="empty-compact"><span class="empty-icon">≡</span><strong>Событий пока нет</strong><p>Проверьте SMTP: отправьте тестовое оповещение в настройках.</p></div></div></div></section>
+ <main class="content">
+  <div class="heading"><div><h1 id="page-title">Обзор инфраструктуры</h1><p id="page-description"></p></div></div>
+  <section id="overview-view" class="page-view">
+   <div class="overview-stats" id="overview-stats"></div>
+   <div class="page-toolbar">
+    <h2>Виджеты</h2>
+    <div class="toolbar-actions">
+     <button class="secondary small" id="dashboard-edit" type="button">Настроить обзор</button>
+     <button class="primary small hidden" id="dashboard-save" type="button">Сохранить</button>
+     <button class="secondary small hidden" id="dashboard-cancel" type="button">Отмена</button>
+    </div>
+   </div>
+   <form id="widget-form" class="inline-editor panel hidden">
+    <label>Тип виджета<select id="widget-type">
+     <option value="raid">Состояние RAID</option><option value="network">Коммутаторы</option>
+     <option value="map">Карта сети</option><option value="problems">Активные алармы</option>
+     <option value="events">Журнал событий</option><option value="servers">Состояние серверов</option>
+    </select></label>
+    <label id="widget-map-label" class="hidden">Карта<select id="widget-map"></select></label>
+    <button id="widget-add" class="secondary" type="submit">Добавить виджет</button>
+   </form>
+   <p id="dashboard-msg" class="form-msg" role="status"></p>
+   <div id="widget-grid" class="widget-grid"></div>
+  </section>
  <section id="servers-view" class="page-view hidden">
   <div class="systems-toolbar"><div><h2>Все системы</h2><p>Нажмите на систему для просмотра дополнительной информации.</p></div>
     <div class="systems-actions"><input id="systems-filter" aria-label="Фильтр систем" placeholder="Фильтр..."><label class="systems-layout-label" for="systems-layout">Сетка:</label><select id="systems-layout" class="systems-layout-select" aria-label="Способ отображения серверов"><option value="large">Крупные · 2 колонки</option><option value="standard">Стандартные · 3 колонки</option><option value="compact">Компактные · 4 колонки</option><option value="list">Список · 1 колонка</option></select><button id="systems-refresh" class="secondary">↻ Обновить</button></div></div>
@@ -21,15 +41,76 @@
   <div id="systems-grid" class="systems-grid"></div>
   <div id="systems-note" class="systems-note">В карточке сервера доступны метрики, файловые системы и RAID-инвентаризация.</div>
  </section>
- <div id="system-detail" class="system-detail-overlay hidden" role="dialog" aria-modal="true" aria-label="Информация о системе"><div class="system-detail-panel"><button id="system-detail-close" class="detail-close" aria-label="Закрыть">×</button><h2 id="detail-name"></h2><div id="detail-content"></div></div></div>
+ <section id="server-view" class="page-view hidden">
+  <div class="page-toolbar server-toolbar">
+   <a class="text-link back-link" href="#servers">← Все системы</a>
+   <button id="server-refresh" type="button" class="secondary small">Обновить</button>
+  </div>
+  <div id="detail-content" class="server-detail"></div>
+ </section>
  <section id="storage-view" class="page-view hidden">
   <div class="systems-toolbar"><input id="storage-filter" aria-label="Фильтр серверов и контроллеров" placeholder="Сервер или контроллер"><button id="storage-refresh" type="button" class="text-button">Обновить</button></div>
   <div id="storage-servers" class="storage-servers" aria-live="polite"></div>
  </section>
+ <section id="network-view" class="page-view hidden">
+  <div class="page-toolbar">
+   <div class="toolbar-actions"><button id="network-add" class="primary small" type="button">Добавить коммутатор</button><button id="network-check" class="secondary small" type="button">Опросить сейчас</button></div>
+  </div>
+  <form id="network-form" class="inline-editor panel hidden">
+   <label>Имя<input id="network-name" required maxlength="64" placeholder="SW-01"></label>
+   <label>IP или DNS-имя<input id="network-host" required maxlength="253" placeholder="192.168.111.2"></label>
+   <label>Опрос<select id="network-method"><option value="snmp">SNMP v2c</option><option value="tcp">TCP-порт</option></select></label>
+   <label>Порт<input id="network-port" required type="number" min="1" max="65535" value="161"></label>
+   <label id="network-community-label">Read-only community<input id="network-community" type="password" maxlength="128" autocomplete="new-password"></label>
+   <div class="toolbar-actions"><button id="network-save" class="primary" type="submit">Сохранить</button><button id="network-cancel" class="secondary" type="button">Отмена</button></div>
+  </form>
+  <p id="network-msg" class="form-msg" role="status"></p>
+  <div id="network-devices" class="network-devices"></div>
+ </section>
+ <section id="maps-view" class="page-view hidden">
+  <div class="page-toolbar">
+   <label>Карта<select id="map-select" aria-label="Выбрать карту"></select></label>
+   <div class="toolbar-actions">
+    <button id="map-new" class="secondary small" type="button">Создать карту</button>
+    <button id="map-edit" class="secondary small" type="button">Редактировать</button>
+   </div>
+  </div>
+  <div id="map-editor" class="map-editor hidden">
+   <form id="map-save-form" class="inline-editor panel">
+    <label>Название<input id="map-name" required maxlength="64"></label>
+    <div class="toolbar-actions">
+     <button id="map-save" class="primary" type="submit">Сохранить карту</button>
+     <button id="map-cancel" class="secondary" type="button">Отмена</button>
+     <button id="map-delete" class="danger-button" type="button">Удалить карту</button>
+    </div>
+   </form>
+   <div class="map-editor-tools">
+    <form id="map-node-form" class="inline-editor panel">
+     <label>Устройство<select id="map-target" required></select></label>
+     <button id="map-node-add" class="secondary" type="submit">Добавить узел</button>
+    </form>
+    <form id="map-link-form" class="inline-editor panel">
+     <label>От<select id="map-from" required></select></label>
+     <label>До<select id="map-to" required></select></label>
+     <label>Подпись<input id="map-link-label" maxlength="48" placeholder="Например, порт 24"></label>
+     <button id="map-link-add" class="secondary" type="submit">Добавить связь</button>
+    </form>
+   </div>
+  </div>
+  <p id="map-msg" class="form-msg" role="status"></p>
+  <div id="map-canvas" class="panel map-panel"></div>
+  <div id="map-edit-list" class="hidden"></div>
+ </section>
  <section id="generic-view" class="page-view hidden"><div class="panel generic-panel"><span class="generic-symbol" id="generic-symbol">▤</span><span class="tag grey">Подключение запланировано</span><h2 id="generic-title">Модуль готовится</h2><p id="generic-description">Этот раздел будет реализован на следующем этапе.</p><div class="future-items" id="generic-features"></div><button class="secondary" data-goto="overview">← Вернуться к обзору</button></div></section>
- <section id="alerts-view" class="page-view hidden"><div class="panel"><div class="panel-title"><div><h2>Журнал событий</h2><p>Тестовые события и история отправки писем</p></div><button id="alert-refresh" class="secondary small">Обновить</button></div><div id="alerts-list" class="alerts-list"></div></div></section>
+ <section id="alerts-view" class="page-view hidden">
+  <div class="page-toolbar"><button id="alert-refresh" class="secondary small" type="button">Обновить</button></div>
+  <div class="alerts-panels">
+   <section class="panel"><h2>Активные алармы</h2><div id="active-alerts"></div></section>
+   <section class="panel"><h2>Журнал уведомлений</h2><div id="alerts-list" class="alerts-list"></div></section>
+  </div>
+ </section>
  <section id="settings-view" class="page-view hidden"><div class="settings-layout"><div class="settings-tabs"><button class="active" data-tab="smtp">✉ Почтовые уведомления</button><button data-tab="account">♙ Безопасность</button></div><div id="smtp-settings" class="panel settings-panel"><div class="settings-heading"><div><h2>Настройка SMTP</h2><p>Для уведомлений Storavix о неисправностях и критических событиях</p></div><span class="tag blue">Email alerts</span></div><div class="hint">Поддерживаются SMTP Relay (без авторизации), STARTTLS, SMTPS, PLAIN, LOGIN, CRAM-MD5 и OAuth2 (XOAUTH2 с готовым токеном). Самоподписанные сертификаты можно доверить через файл CA на сервере.</div>
  <form id="smtp-form"><div class="field-grid"><label>SMTP-сервер<input id="mail-host" placeholder="mail.example.com" required></label><label>Порт<input id="mail-port" type="number" min="1" max="65535" value="587" required></label><label>Защита соединения<select id="mail-security"><option value="starttls">STARTTLS (обычно 587)</option><option value="tls">SSL/TLS (обычно 465)</option><option value="none">Без TLS (только relay)</option></select></label><label>Авторизация<select id="mail-auth"><option value="plain">PLAIN</option><option value="login">LOGIN</option><option value="crammd5">CRAM-MD5</option><option value="xoauth2">OAuth2 / XOAUTH2</option><option value="none">Без авторизации</option></select></label><label>Логин<input id="mail-username" autocomplete="off" placeholder="alerts@example.com"></label><label>Пароль или OAuth2 access token<input id="mail-password" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы сохранить текущий"></label><label>Отправитель (From)<input id="mail-from" placeholder="Storavix <alerts@example.com>" required></label><label>Получатели<input id="mail-recipients" placeholder="admin@example.com; team@example.com" required></label><label class="full">Путь к CA-сертификатам (необязательно)<input id="mail-ca" placeholder="/etc/storavix/ca-bundle.pem"></label></div><div class="settings-actions"><button class="primary" type="submit">Сохранить настройки</button><button class="secondary" type="button" id="test-email">Отправить тестовое письмо</button><button class="secondary" type="button" id="test-alert">Создать тестовый алерт</button></div></form><p id="smtp-msg" class="form-msg"></p><div class="micro">Секрет SMTP шифруется AES-GCM перед записью на диск. Проверьте SMTP-соединение только после сохранения настроек. Для Microsoft 365 и Google Workspace OAuth2-токен должен быть получен отдельно и обновляться вручную в этой версии.</div></div>
  <div id="account-settings" class="panel settings-panel hidden"><div class="settings-heading"><div><h2>Безопасность администратора</h2><p>Измените пароль для доступа к веб-панели</p></div></div><form id="password-form"><label>Текущий пароль<input id="old-password" type="password" required></label><label>Новый пароль (не меньше 8 символов)<input id="new-password" type="password" minlength="8" required></label><div class="settings-actions"><button class="primary">Изменить пароль</button></div></form><p id="password-msg" class="form-msg"></p></div></div></section>
- </main><footer class="footer">Storavix v0.2.6 <span>·</span> Infrastructure & Storage Monitoring <span class="footer-right">Open Source · Self-hosted</span></footer></div>
-</div><script src="/app.js" defer></script></body></html>
+ </main><footer class="footer">Storavix <b id="footer-version"></b> <span>·</span> Infrastructure & Storage Monitoring <span class="footer-right">Open Source · Self-hosted</span></footer></div>
+</div><script src="/app.js?v=0.2.11" defer></script><script src="/dashboard.js?v=0.2.11" defer></script></body></html>
