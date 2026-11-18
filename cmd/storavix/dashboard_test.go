@@ -18,7 +18,7 @@ func TestDashboardSettingsAndAgentDetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.sessions["test"] = time.Now().Add(time.Hour)
+	s.sessions["test"] = userSession{AccountKey: accountKey(s.state.AdminUser), Expires: time.Now().Add(time.Hour)}
 	s.agents["0123456789abcdef0123456789abcdef"] = telemetry.Report{
 		ID: "0123456789abcdef0123456789abcdef", Hostname: "SRV107", OS: "windows",
 		ReceivedAt: time.Now(), Arrays: []telemetry.Array{{Name: "DATA", Status: "degraded", Level: "RAID5"}},

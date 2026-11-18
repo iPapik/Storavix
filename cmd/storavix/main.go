@@ -7,7 +7,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -36,7 +35,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.12"
+const version = "0.2.13"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -59,6 +58,7 @@ type Alert struct {
 	Delivered bool      `json:"delivered"`
 }
 type State struct {
+	Users           map[string]StoredAccount  `json:"users,omitempty"`
 	AdminUser       string                    `json:"adminUser"`
 	Salt            string                    `json:"salt"`
 	PassHash        string                    `json:"passHash"`
@@ -75,7 +75,7 @@ type server struct {
 	state          State
 	dataDir        string
 	key            []byte
-	sessions       map[string]time.Time
+	sessions       map[string]userSession
 	loginAttempts  map[string][]time.Time
 	mailLast       time.Time
 	secureCookies  bool
@@ -182,7 +182,7 @@ func newServer(dir string) (*server, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s := &server{dataDir: dir, sessions: map[string]time.Time{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}, deletedAgents: map[string]bool{}, networkSamples: make(map[string]networkSample), networkWake: make(chan struct{}, 1)}
+	s := &server{dataDir: dir, sessions: map[string]userSession{}, loginAttempts: map[string][]time.Time{}, secureCookies: os.Getenv("STORAVIX_SECURE_COOKIES") == "true", agents: map[string]telemetry.Report{}, deletedAgents: map[string]bool{}, networkSamples: make(map[string]networkSample), networkWake: make(chan struct{}, 1)}
 	keyPath := filepath.Join(dir, "master.key")
 	if keyEnv := os.Getenv("STORAVIX_MASTER_KEY"); keyEnv != "" {
 		key, e := base64.StdEncoding.DecodeString(keyEnv)
@@ -316,60 +316,44 @@ func decodeJSONLimit(r *http.Request, v any, limit int64) error {
 	}
 	return nil
 }
-func (s *server) auth(r *http.Request) bool {
-	c, e := r.Cookie("storavix_session")
-	if e != nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.sessions[c.Value]
-	return ok && time.Now().Before(exp)
-}
-func (s *server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.auth(r) {
-			problem(w, 401, "Требуется вход администратора")
-			return
-		}
-		h(w, r)
-	}
-}
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", web.Handler())
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{"status": "ok", "version": version})
 	})
-	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
-		sendJSON(w, 200, map[string]any{"authenticated": s.auth(r), "version": version})
-	})
+	mux.HandleFunc("GET /api/session", s.getSession)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.requireAuth(s.logout))
 	mux.HandleFunc("GET /api/summary", s.requireAuth(s.summary))
-	mux.HandleFunc("GET /api/settings/mail", s.requireAuth(s.getMail))
-	mux.HandleFunc("PUT /api/settings/mail", s.requireAuth(s.setMail))
-	mux.HandleFunc("GET /api/settings/syslog", s.requireAuth(s.getSyslogSettings))
-	mux.HandleFunc("PUT /api/settings/syslog", s.requireAuth(s.putSyslogSettings))
-	mux.HandleFunc("GET /api/syslog", s.requireAuth(s.syslogMessages))
-	mux.HandleFunc("PUT /api/locations/{kind}/{id}", s.requireAuth(s.saveLocation))
-	mux.HandleFunc("DELETE /api/locations/{kind}/{id}", s.requireAuth(s.saveLocation))
-	mux.HandleFunc("POST /api/locations/search", s.requireAuth(s.findLocation))
+	mux.HandleFunc("GET /api/settings/mail", s.authorize(Account.admin, s.getMail))
+	mux.HandleFunc("PUT /api/settings/mail", s.authorize(Account.admin, s.setMail))
+	mux.HandleFunc("GET /api/settings/syslog", s.authorize(Account.admin, s.getSyslogSettings))
+	mux.HandleFunc("PUT /api/settings/syslog", s.authorize(Account.admin, s.putSyslogSettings))
+	mux.HandleFunc("GET /api/syslog", s.authorize(Account.full, s.syslogMessages))
+	mux.HandleFunc("PUT /api/locations/{kind}/{id}", s.authorize(Account.write, s.saveLocation))
+	mux.HandleFunc("DELETE /api/locations/{kind}/{id}", s.authorize(Account.write, s.saveLocation))
+	mux.HandleFunc("POST /api/locations/search", s.authorize(Account.write, s.findLocation))
 
-	mux.HandleFunc("POST /api/settings/mail/test", s.requireAuth(s.testMail))
-	mux.HandleFunc("GET /api/alerts", s.requireAuth(s.alerts))
-	mux.HandleFunc("POST /api/alerts/test", s.requireAuth(s.testAlert))
+	mux.HandleFunc("POST /api/settings/mail/test", s.authorize(Account.admin, s.testMail))
+	mux.HandleFunc("GET /api/alerts", s.authorize(Account.full, s.alerts))
+	mux.HandleFunc("POST /api/alerts/test", s.authorize(Account.admin, s.testAlert))
 	mux.HandleFunc("POST /api/account/password", s.requireAuth(s.changePassword))
+	mux.HandleFunc("GET /api/settings/users", s.authorize(Account.admin, s.getAccounts))
+	mux.HandleFunc("POST /api/settings/users", s.authorize(Account.admin, s.sendAccountChange))
+	mux.HandleFunc("PUT /api/settings/users/{username}", s.authorize(Account.admin, s.sendAccountChange))
+	mux.HandleFunc("DELETE /api/settings/users/{username}", s.authorize(Account.admin, s.sendAccountChange))
+
 	mux.HandleFunc("GET /api/agents", s.requireAuth(s.getAgents))
 	mux.HandleFunc("GET /api/agents/{id}", s.requireAuth(s.getAgent))
 	mux.HandleFunc("GET /api/dashboard", s.requireAuth(s.getDashboardData))
 	mux.HandleFunc("GET /api/dashboard/config", s.requireAuth(s.getDashboardConfig))
-	mux.HandleFunc("PUT /api/dashboard/config", s.requireAuth(s.putDashboardConfig))
-	mux.HandleFunc("GET /api/network", s.requireAuth(s.getNetwork))
-	mux.HandleFunc("PUT /api/network/{id}", s.requireAuth(s.putNetworkDevice))
-	mux.HandleFunc("DELETE /api/network/{id}", s.requireAuth(s.deleteNetworkDevice))
-	mux.HandleFunc("POST /api/network/check", s.requireAuth(s.requestNetworkPoll))
-	mux.HandleFunc("DELETE /api/agents/{id}", s.requireAuth(s.deleteAgent))
+	mux.HandleFunc("PUT /api/dashboard/config", s.authorize(func(a Account) bool { return a.full() && a.write() }, s.putDashboardConfig))
+	mux.HandleFunc("GET /api/network", s.authorize(Account.network, s.getNetwork))
+	mux.HandleFunc("PUT /api/network/{id}", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.putNetworkDevice))
+	mux.HandleFunc("DELETE /api/network/{id}", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.deleteNetworkDevice))
+	mux.HandleFunc("POST /api/network/check", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.requestNetworkPoll))
+	mux.HandleFunc("DELETE /api/agents/{id}", s.authorize(Account.admin, s.deleteAgent))
 	mux.HandleFunc("POST /api/agent/report", s.ingestAgent)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" || r.URL.Path == "/style.css" || strings.HasSuffix(r.URL.Path, ".js") {
@@ -420,23 +404,35 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.loginAttempts[ip] = append(filtered, now)
-	user := s.state.AdminUser
-	saltHex := s.state.Salt
-	correct := s.state.PassHash
+	key := accountKey(in.Username)
+	user, exists := s.accountLocked(key)
+	if !exists {
+		// Spend the same amount of work for an unknown login.
+		user.Salt, user.PassHash = s.state.Salt, s.state.PassHash
+	}
 	s.mu.Unlock()
-	salt, _ := hex.DecodeString(saltHex)
-	hash := pbkdf2(in.Password, salt)
-	if subtle.ConstantTimeCompare([]byte(hash), []byte(correct)) != 1 || subtle.ConstantTimeCompare([]byte(in.Username), []byte(user)) != 1 {
+	if len(in.Password) > 1024 || !verifyAccountPassword(in.Password, user) || !exists {
 		problem(w, 401, "Неверный логин или пароль")
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(randomBytes(32))
 	s.mu.Lock()
-	s.sessions[token] = time.Now().Add(12 * time.Hour)
-	s.loginAttempts[ip] = nil
+	current, exists := s.accountLocked(key)
+	if !exists || current != user {
+		s.mu.Unlock()
+		problem(w, 401, "Неверный логин или пароль")
+		return
+	}
+	for key, session := range s.sessions {
+		if !now.Before(session.Expires) {
+			delete(s.sessions, key)
+		}
+	}
+	s.sessions[token] = userSession{AccountKey: key, Expires: time.Now().Add(12 * time.Hour)}
+	delete(s.loginAttempts, ip)
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: "storavix_session", Value: token, Path: "/", HttpOnly: true, Secure: s.secureCookies || r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: 43200})
-	sendJSON(w, 200, map[string]string{"status": "ok"})
+	sendJSON(w, 200, map[string]any{"status": "ok", "user": current.Account})
 }
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	c, _ := r.Cookie("storavix_session")
@@ -455,6 +451,16 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 	hosts := len(s.agents)
 	arrays, drives := s.storageCounts()
 	network := len(s.state.Network)
+	user := requestAccount(r)
+	if !user.network() {
+		network = 0
+	}
+	if !user.full() {
+		total = 0
+	}
+	if !user.admin() {
+		mailReady = false
+	}
 	online := s.onlineCount()
 	s.mu.Unlock()
 	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": drives, "network": network, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
@@ -620,33 +626,6 @@ func (s *server) testAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendJSON(w, 200, map[string]string{"status": "sent"})
-}
-func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Old string `json:"old"`
-		New string `json:"new"`
-	}
-	if decodeJSON(r, &in) != nil || len(in.New) < 8 || len(in.New) > 1024 {
-		problem(w, 400, "Новый пароль должен содержать 8–1024 символа")
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	salt, _ := hex.DecodeString(s.state.Salt)
-	if subtle.ConstantTimeCompare([]byte(pbkdf2(in.Old, salt)), []byte(s.state.PassHash)) != 1 {
-		problem(w, 403, "Текущий пароль неверен")
-		return
-	}
-	salt = randomBytes(16)
-	s.state.Salt = hex.EncodeToString(salt)
-	s.state.PassHash = pbkdf2(in.New, salt)
-	if e := s.saveLocked(); e != nil {
-		problem(w, 500, "Ошибка сохранения")
-		return
-	}
-	s.sessions = map[string]time.Time{}
-	http.SetCookie(w, &http.Cookie{Name: "storavix_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.secureCookies || r.TLS != nil, SameSite: http.SameSiteStrictMode})
-	sendJSON(w, 200, map[string]string{"status": "changed"})
 }
 func safeErr(e error) string {
 	msg := e.Error()

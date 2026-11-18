@@ -25,6 +25,10 @@ func (p DeviceLocation) valid() bool {
 
 func (s *server) saveLocation(w http.ResponseWriter, r *http.Request) {
 	kind, id := r.PathValue("kind"), r.PathValue("id")
+	if kind == "switch" && !requestAccount(r).network() {
+		problem(w, http.StatusForbidden, "Нет доступа к коммутаторам")
+		return
+	}
 	key := kind + ":" + id
 	var in struct {
 		Lat     *float64 `json:"lat"`

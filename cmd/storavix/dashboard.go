@@ -56,9 +56,10 @@ type TopologyMap struct {
 }
 
 type DashboardConfig struct {
-	Revision uint64        `json:"revision"`
-	Widgets  []Widget      `json:"widgets"`
-	Maps     []TopologyMap `json:"maps"`
+	Revision    uint64        `json:"revision"`
+	Widgets     []Widget      `json:"widgets"`
+	Maps        []TopologyMap `json:"maps"`
+	FixedLayout bool          `json:"fixedLayout,omitempty"`
 }
 
 var configID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,48}$`)
@@ -146,10 +147,24 @@ func (c DashboardConfig) validate() error {
 	return nil
 }
 
-func (s *server) getDashboardConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *server) getDashboardConfig(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	config := s.dashboardConfig()
 	s.mu.Unlock()
+	user := requestAccount(r)
+	if !user.full() {
+		widgets := make([]Widget, 0, len(config.Widgets))
+		for _, widget := range config.Widgets {
+			if widget.Type == "map" || widget.Type == "events" || widget.Type == "network" && !user.network() {
+				continue
+			}
+			widgets = append(widgets, widget)
+		}
+		config.Widgets = widgets
+		config.Maps = []TopologyMap{}
+		config.FixedLayout = false
+	}
+
 	sendJSON(w, http.StatusOK, config)
 }
 
@@ -212,14 +227,20 @@ type DashboardData struct {
 	Locations map[string]DeviceLocation `json:"locations"`
 }
 
-func (s *server) getDashboardData(w http.ResponseWriter, _ *http.Request) {
+func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
+	user := requestAccount(r)
 	s.mu.Lock()
-	data := DashboardData{Network: s.networkDevicesLocked(false), Events: append([]Alert{}, s.state.Alerts...),
-		Locations: make(map[string]DeviceLocation, len(s.state.Locations))}
+	data := DashboardData{Locations: make(map[string]DeviceLocation, len(s.state.Locations))}
+	if user.network() {
+		data.Network = s.networkDevicesLocked(false)
+	}
+	if user.full() {
+		data.Events = append([]Alert{}, s.state.Alerts...)
+	}
 	for key, pos := range s.state.Locations {
 		kind, id, _ := strings.Cut(key, ":")
-		if s.locationDeviceExists(kind, id) {
+		if (kind != "switch" || user.network()) && s.locationDeviceExists(kind, id) {
 			data.Locations[key] = pos
 		}
 	}

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.12"></head>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.13"></head>
 <body>
 <div id="login" class="login-page hidden"><div class="login-card"><div class="brand login-brand brand-integrated"><img class="login-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div><h1>Добро пожаловать</h1><p class="muted">Войдите, чтобы открыть панель мониторинга.</p><form id="login-form"><label>Имя пользователя<input id="login-user" autocomplete="username" placeholder="Логин, заданный при установке" required></label><label>Пароль<input id="login-pass" type="password" autocomplete="current-password" required></label><button class="primary wide">Войти в Storavix <span>→</span></button></form><p class="form-msg" id="login-msg"></p><p class="micro">Логин и пароль администратора задаются при первоначальной установке Storavix.</p></div></div>
 <div id="shell" class="app hidden">
@@ -9,7 +9,7 @@
   <div class="sidebar-caption sidebar-caption-bottom">УПРАВЛЕНИЕ</div><nav><button data-page="settings"><span class="nav-icon">⚙</span> Настройки</button></nav>
   <div class="sidebar-foot"><small id="version"</small><span class="opensource">Storavix · Open Source</span></div>
  </aside>
- <div class="main-wrap"><header class="topbar"><button id="menu-toggle" class="icon-button menu-toggle" aria-label="Меню">☰</button><div class="breadcrumb">Storavix <span>/</span> <b id="breadcrumb">Обзор</b></div><div class="top-actions"><span class="badge-soft" id="panel-address"></span><span class="user-avatar">A</span><button id="logout" class="text-button">Выход</button></div></header>
+ <div class="main-wrap"><header class="topbar"><button id="menu-toggle" class="icon-button menu-toggle" aria-label="Меню">☰</button><div class="breadcrumb">Storavix <span>/</span> <b id="breadcrumb">Обзор</b></div><div class="top-actions"><span class="badge-soft" id="panel-address"></span><span id="user-avatar" class="user-avatar"></span><button id="logout" class="text-button">Выход</button></div></header>
  <main class="content">
   <div class="heading"><div><h1 id="page-title">Обзор инфраструктуры</h1><p id="page-description"></p></div></div>
   <section id="overview-view" class="page-view">
@@ -17,6 +17,7 @@
    <div class="page-toolbar">
     <h2>Виджеты</h2>
     <div class="toolbar-actions">
+     <label class="check-field hidden" id="dashboard-auto-label"><input id="dashboard-auto" type="checkbox"> Автосортировка</label>
      <button class="secondary small" id="dashboard-edit" type="button">Настроить обзор</button>
      <button class="primary small hidden" id="dashboard-save" type="button">Сохранить</button>
      <button class="secondary small hidden" id="dashboard-cancel" type="button">Отмена</button>
@@ -139,15 +140,20 @@
   <div class="page-toolbar"><button id="alert-refresh" class="secondary small" type="button">Обновить</button></div>
   <div class="alerts-panels">
    <section class="panel"><h2>Активные алармы</h2><div id="active-alerts"></div></section>
-   <section class="panel"><h2>Журнал уведомлений</h2><div id="alerts-list" class="alerts-list"></div></section>
+   <section id="notification-history" class="panel"><h2>Журнал уведомлений</h2><div id="alerts-list" class="alerts-list"></div></section>
   </div>
  </section>
- <section id="settings-view" class="page-view hidden"><div class="settings-layout"><div class="settings-tabs"><button class="active" data-tab="smtp">SMTP</button><button data-tab="syslog">Syslog</button><button data-tab="account">♙ Безопасность</button></div><div id="smtp-settings" class="panel settings-panel"><div class="settings-heading"><div><h2>Настройка SMTP</h2><p>Для уведомлений Storavix о неисправностях и критических событиях</p></div><span class="tag blue">Email alerts</span></div><div class="hint">Поддерживаются SMTP Relay (без авторизации), STARTTLS, SMTPS, PLAIN, LOGIN, CRAM-MD5 и OAuth2 (XOAUTH2 с готовым токеном). Самоподписанные сертификаты можно доверить через файл CA на сервере.</div>
+ <section id="settings-view" class="page-view hidden"><div class="settings-layout"><div class="settings-tabs"><button class="active" data-tab="smtp">SMTP</button><button data-tab="syslog">Syslog</button><button data-tab="users">Пользователи</button><button data-tab="account">♙ Безопасность</button></div><div id="smtp-settings" class="panel settings-panel"><div class="settings-heading"><div><h2>Настройка SMTP</h2><p>Для уведомлений Storavix о неисправностях и критических событиях</p></div><span class="tag blue">Email alerts</span></div><div class="hint">Поддерживаются SMTP Relay (без авторизации), STARTTLS, SMTPS, PLAIN, LOGIN, CRAM-MD5 и OAuth2 (XOAUTH2 с готовым токеном). Самоподписанные сертификаты можно доверить через файл CA на сервере.</div>
  <form id="smtp-form"><div class="field-grid"><label>SMTP-сервер<input id="mail-host" placeholder="mail.example.com" required></label><label>Порт<input id="mail-port" type="number" min="1" max="65535" value="587" required></label><label>Защита соединения<select id="mail-security"><option value="starttls">STARTTLS (обычно 587)</option><option value="tls">SSL/TLS (обычно 465)</option><option value="none">Без TLS (только relay)</option></select></label><label>Авторизация<select id="mail-auth"><option value="plain">PLAIN</option><option value="login">LOGIN</option><option value="crammd5">CRAM-MD5</option><option value="xoauth2">OAuth2 / XOAUTH2</option><option value="none">Без авторизации</option></select></label><label>Логин<input id="mail-username" autocomplete="off" placeholder="alerts@example.com"></label><label>Пароль или OAuth2 access token<input id="mail-password" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы сохранить текущий"></label><label>Отправитель (From)<input id="mail-from" placeholder="Storavix <alerts@example.com>" required></label><label>Получатели<input id="mail-recipients" placeholder="admin@example.com; team@example.com" required></label><label class="full">Путь к CA-сертификатам (необязательно)<input id="mail-ca" placeholder="/etc/storavix/ca-bundle.pem"></label></div><div class="settings-actions"><button class="primary" type="submit">Сохранить настройки</button><button class="secondary" type="button" id="test-email">Отправить тестовое письмо</button><button class="secondary" type="button" id="test-alert">Создать тестовый алерт</button></div></form><p id="smtp-msg" class="form-msg"></p><div class="micro">Секрет SMTP шифруется AES-GCM перед записью на диск. Проверьте SMTP-соединение только после сохранения настроек. Для Microsoft 365 и Google Workspace OAuth2-токен должен быть получен отдельно и обновляться вручную в этой версии.</div></div>
  <div id="syslog-settings" class="panel settings-panel hidden">
-  <div class="settings-heading"><div><h2>Приём Syslog</h2><p>Укажите этот порт в настройках отправителя Syslog.</p></div><a class="text-link" href="#syslog">Открыть журнал →</a></div>
+  <div class="settings-heading syslog-heading">
+   <div><h2>Приём Syslog</h2><p>Укажите этот порт в настройках отправителя Syslog.</p></div>
+   <div class="toolbar-actions">
+    <label class="check-field"><input id="syslog-enable" type="checkbox" form="syslog-settings-form"> Принимать события Syslog</label>
+    <a class="text-link" href="#syslog">Открыть журнал →</a>
+   </div>
+  </div>
   <form id="syslog-settings-form">
-   <label class="check-field"><input id="syslog-enable" type="checkbox"> Принимать события Syslog</label>
    <div class="field-grid">
     <label>IP для прослушивания<input id="syslog-bind" required placeholder="0.0.0.0"></label>
     <label>Порт<input id="syslog-port" type="number" min="1" max="65535" required></label>
@@ -158,11 +164,31 @@
   </form>
   <p id="syslog-state" class="muted"></p><p id="syslog-settings-msg" class="form-msg" role="status"></p>
  </div>
- <div id="account-settings" class="panel settings-panel hidden"><div class="settings-heading"><div><h2>Безопасность администратора</h2><p>Измените пароль для доступа к веб-панели</p></div></div><form id="password-form"><label>Текущий пароль<input id="old-password" type="password" required></label><label>Новый пароль (не меньше 8 символов)<input id="new-password" type="password" minlength="8" required></label><div class="settings-actions"><button class="primary">Изменить пароль</button></div></form><p id="password-msg" class="form-msg"></p></div></div></section>
+ <div id="users-settings" class="panel settings-panel hidden">
+  <div class="settings-heading"><h2>Пользователи</h2><button class="secondary small" type="button" id="user-add">Создать пользователя</button></div>
+  <form id="user-form" class="hidden">
+   <div class="field-grid">
+    <label>Логин<input id="user-name" maxlength="64" required autocomplete="off"></label>
+    <label>Пароль<input id="user-password" type="password" minlength="8" maxlength="1024" autocomplete="new-password" required></label>
+    <label>Роль<select id="user-role">
+     <option value="viewer">Наблюдатель</option><option value="operator">Оператор</option><option value="admin">Администратор</option>
+    </select></label>
+    <label>Доступ к разделам<select id="user-scope">
+     <option value="servers">Только серверы</option><option value="infrastructure">Серверы и коммутаторы</option><option value="all">Все разделы</option>
+    </select></label>
+   </div>
+   <p id="user-role-hint" class="muted"></p>
+   <div class="settings-actions"><button id="user-save" class="primary" type="submit">Создать</button><button id="user-cancel" class="secondary" type="button">Отмена</button></div>
+  </form>
+  <p id="users-msg" class="form-msg" role="status"></p>
+  <div id="users-list"></div>
+ </div>
+ <div id="account-settings" class="panel settings-panel hidden"><div class="settings-heading"><div><h2>Безопасность учётной записи</h2><p>Измените пароль для доступа к веб-панели</p></div></div><form id="password-form"><label>Текущий пароль<input id="old-password" type="password" required></label><label>Новый пароль (не меньше 8 символов)<input id="new-password" type="password" minlength="8" required></label><div class="settings-actions"><button class="primary">Изменить пароль</button></div></form><p id="password-msg" class="form-msg"></p></div></div></section>
  </main><footer class="footer">Storavix <b id="footer-version"></b> <span>·</span> Infrastructure & Storage Monitoring <span class="footer-right">Open Source · Self-hosted</span></footer></div>
 </div><script src="/vendor/leaflet/leaflet.js" defer></script>
-<script src="/app.js?v=0.2.12" defer></script>
-<script src="/widget-grid.js?v=0.2.12" defer></script>
-<script src="/geo.js?v=0.2.12" defer></script>
-<script src="/syslog.js?v=0.2.12" defer></script>
-<script src="/dashboard.js?v=0.2.12" defer></script></body></html>
+<script src="/app.js?v=0.2.13" defer></script>
+<script src="/widget-grid.js?v=0.2.13" defer></script>
+<script src="/geo.js?v=0.2.13" defer></script>
+<script src="/syslog.js?v=0.2.13" defer></script>
+<script src="/accounts.js?v=0.2.13" defer></script>
+<script src="/dashboard.js?v=0.2.13" defer></script></body></html>

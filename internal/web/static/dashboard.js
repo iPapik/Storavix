@@ -19,9 +19,9 @@ const emptyMonitoring = {hosts: [], arrays: [], network: [], problems: [], event
 let monitoring = {...emptyMonitoring};
 let configuration;
 let dashboardDraft;
-let monitoringPending = false;
+let monitoringPending = -1;
 let mapDraft;
-let networkPending = false;
+let networkPending = -1;
 let networkDevices = [];
 let networkEditing = '';
 let mapDrag = false;
@@ -82,9 +82,10 @@ function portSummary(device) {
 }
 
 async function loadMonitoring(eventOrRefresh = true) {
-  if (monitoringPending) return;
+  const epoch = sessionEpoch;
+  if (monitoringPending === epoch) return;
   const refreshEditors = eventOrRefresh !== false;
-  monitoringPending = true;
+  monitoringPending = epoch;
   try {
     const [data, config] = await Promise.all([
       api('/api/dashboard'),
@@ -111,18 +112,29 @@ async function loadMonitoring(eventOrRefresh = true) {
         break;
     }
   } catch (error) {
+    if (epoch !== sessionEpoch) return;
     if (currentRoute.page === 'overview') msg('dashboard-msg', error.message, true);
     if (currentRoute.page === 'maps') msg('map-msg', error.message, true);
     if (currentRoute.page === 'geomap') msg('geo-msg', error.message, true);
     if (currentRoute.page === 'alerts') $('active-alerts').replaceChildren(emptyNote(error.message));
   } finally {
-    monitoringPending = false;
-    // A request initiated from the alarms page does not fetch the map/widget config.
-    if (session && !configuration && (currentRoute.page === 'overview' || currentRoute.page === 'maps') &&
-        !dashboardDraft && !mapDraft) $('dashboard-edit').disabled = true;
-    else $('dashboard-edit').disabled = false;
+    if (monitoringPending === epoch) monitoringPending = -1;
+    $('dashboard-edit').disabled = !configuration;
   }
 }
+
+function resetDashboardSession() {
+  monitoring = {...emptyMonitoring};
+  configuration = dashboardDraft = mapDraft = undefined;
+  networkDevices = [];
+  networkEditing = selectedMap = geoDevice = geoRouteTarget = '';
+  for (const view of geoMaps.values()) view.dispose();
+  geoMaps.clear();
+  for (const id of ['widget-grid', 'overview-stats', 'map-canvas', 'map-edit-list', 'geo-page-map', 'geo-locations',
+    'geo-results', 'active-alerts', 'alerts-list', 'network-devices']) $(id).replaceChildren();
+  $('geo-form').reset();
+}
+
 
 function action(label, handler, className = 'text-button') {
   const button = makeText('button', label, className);
@@ -134,9 +146,10 @@ function action(label, handler, className = 'text-button') {
 function renderOverview() {
   const stats = [
     ['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers'],
-    ['Коммутаторы', monitoring.network.length, 'network'],
+    ...(hasNetworkAccess() ? [['Коммутаторы', monitoring.network.length, 'network']] : []),
     ['Активные алармы', monitoring.problems.length, 'bell']
   ];
+  $('overview-stats').classList.toggle('stats-servers-only', !hasNetworkAccess());
   $('overview-stats').replaceChildren(...stats.map(([name, value, icon]) => {
     const tile = document.createElement('div');
     tile.className = 'panel overview-stat';
@@ -148,10 +161,12 @@ function renderOverview() {
   const config = dashboardDraft || configuration;
   if (!config) return;
   const editing = !!dashboardDraft;
-  $('dashboard-edit').classList.toggle('hidden', editing);
+  $('dashboard-edit').classList.toggle('hidden', editing || !canEditDashboard());
   $('dashboard-save').classList.toggle('hidden', !editing);
   $('dashboard-cancel').classList.toggle('hidden', !editing);
   $('widget-form').classList.toggle('hidden', !editing);
+  $('dashboard-auto-label').classList.toggle('hidden', !editing);
+  $('dashboard-auto').checked = !config.fixedLayout;
   const mapSelect = $('widget-map');
   const selected = mapSelect.value;
   updateOptions(mapSelect, config.maps.map(map => [map.id, map.name]), selected);
@@ -162,7 +177,7 @@ function renderOverview() {
   grid.classList.toggle('widget-grid-editing', editing);
   clearRemovedGeoWidgets(config.widgets);
   if (!config.widgets.length) grid.append(emptyNote('На обзоре пока нет виджетов.'));
-  const positions = layoutWidgets(config.widgets);
+  const positions = layoutWidgets(config.widgets, !editing && !config.fixedLayout);
   const ordered = [...config.widgets].filter(widget => positions.has(widget.id)).sort((a, b) => {
     const x = positions.get(a.id), y = positions.get(b.id);
     return x.y - y.y || x.x - y.x;
@@ -182,6 +197,7 @@ function renderOverview() {
       header.prepend(widgetHandle(widget, panel, false));
       header.append(action('Удалить', () => {
         dashboardDraft.widgets = dashboardDraft.widgets.filter(item => item.id !== widget.id);
+        settleWidgetDraft();
         renderOverview();
       }, 'widget-remove'));
       panel.append(widgetHandle(widget, panel, true));
@@ -268,13 +284,12 @@ async function saveConfig(config) {
 }
 
 $('dashboard-edit').addEventListener('click', () => {
-  if (!configuration) return;
+  if (!configuration || !canEditDashboard()) return;
   const retained = mapDraft && !confirm('Отменить несохранённые изменения карты?');
   if (retained) return;
   mapDraft = null;
   dashboardDraft = cloneJSON(configuration);
-  const positions = layoutWidgets(dashboardDraft.widgets);
-  for (const widget of dashboardDraft.widgets) widget.layout = positions.get(widget.id);
+  applyWidgetLayout(dashboardDraft.widgets, layoutWidgets(dashboardDraft.widgets, !dashboardDraft.fixedLayout));
   msg('dashboard-msg');
   renderOverview();
 });
@@ -299,6 +314,12 @@ $('dashboard-save').addEventListener('click', async () => {
     button.disabled = false;
   }
 });
+$('dashboard-auto').addEventListener('change', () => {
+  if (!dashboardDraft) return;
+  dashboardDraft.fixedLayout = !$('dashboard-auto').checked;
+  settleWidgetDraft();
+  renderOverview();
+});
 $('widget-type').addEventListener('change', updateWidgetForm);
 $('widget-map').addEventListener('change', updateWidgetForm);
 $('widget-form').addEventListener('submit', event => {
@@ -311,6 +332,7 @@ $('widget-form').addEventListener('submit', event => {
   widget.layout = positions.get(widget.id);
   if (!widget.layout) { msg('dashboard-msg', 'В сетке нет свободного места для виджета.', true); return; }
   dashboardDraft.widgets.push(widget);
+  settleWidgetDraft();
   renderOverview();
 });
 
@@ -412,6 +434,8 @@ function renderMaps(redraw = true) {
   selectedMap = active?.id || '';
   updateOptions($('map-select'), maps.map(map => [map.id, map.name]), selectedMap);
   $('map-select').disabled = !!mapDraft || !maps.length;
+  $('map-new').classList.toggle('hidden', !canEditDashboard());
+  $('map-edit').classList.toggle('hidden', !canEditDashboard());
   $('map-new').disabled = !!mapDraft || maps.length >= 8;
   $('map-edit').disabled = !!mapDraft || !active;
   $('map-editor').classList.toggle('hidden', !mapDraft);
@@ -476,6 +500,7 @@ function renderMaps(redraw = true) {
 }
 
 function startMapEditing(map) {
+  if (!canEditDashboard()) return;
   if (dashboardDraft) {
     if (!confirm('Отменить несохранённые изменения обзора?')) return;
     dashboardDraft = null;
@@ -560,15 +585,16 @@ async function commitMap(config, id) {
 }
 
 async function loadNetwork() {
-  if (networkPending) return;
-  networkPending = true;
+  const epoch = sessionEpoch;
+  if (networkPending === epoch) return;
+  networkPending = epoch;
   try {
     networkDevices = await api('/api/network');
     if (currentRoute.page === 'network') renderNetwork();
   } catch (error) {
-    msg('network-msg', error.message, true);
+    if (epoch === sessionEpoch) msg('network-msg', error.message, true);
   } finally {
-    networkPending = false;
+    if (networkPending === epoch) networkPending = -1;
   }
 }
 
@@ -601,7 +627,8 @@ function renderNetwork() {
     }
     const controls = document.createElement('div');
     controls.className = 'toolbar-actions';
-    controls.append(routeLink('Местоположение', 'geomap', device.id), action('Изменить', () => editNetwork(device), 'secondary small'),
+    controls.append(routeLink('Местоположение', 'geomap', device.id));
+    if (canManageDevices()) controls.append(action('Изменить', () => editNetwork(device), 'secondary small'),
       action('Удалить', () => removeNetwork(device), 'text-button'));
     details.append(controls);
     panel.append(details);
@@ -696,7 +723,7 @@ setInterval(() => {
   try {
     const state = await api('/api/session');
     updateVersion(state.version);
-    if (state.authenticated) showShell();
+    if (state.authenticated) showShell(state.user);
     else showAuth();
   } catch (error) {
     showAuth();

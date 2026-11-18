@@ -125,7 +125,7 @@ func TestDeleteAgentRequiresAdminAndPersistsTombstone(t *testing.T) {
 	if got := remove("",id); got != 401 { t.Fatalf("unauth delete: %d",got) }
 	if len(s.agents)!=1 { t.Fatal("unauth delete changed data") }
 	s.mu.Lock()
-	s.sessions["testsession"]=time.Now().Add(time.Hour)
+	s.sessions["testsession"]= userSession{AccountKey: accountKey(s.state.AdminUser), Expires: time.Now().Add(time.Hour)}
 	s.mu.Unlock()
 	if got:=remove("testsession","invalid");got!=400 {t.Fatalf("bad ID: %d",got)}
 	if got:=remove("testsession",id);got!=200 {t.Fatalf("delete: %d",got)}

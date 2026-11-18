@@ -31,7 +31,16 @@ document.querySelectorAll('.empty-icon').forEach((el,i)=>el.replaceChildren(make
 $('menu-toggle').replaceChildren(makeIcon('menu'));
 $('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode(' Обновить'));
 
-let session=false;
+let session = false;
+let sessionEpoch = 0;
+let activeAccount;
+
+function isAdmin() { return activeAccount?.role === 'admin' && hasFullAccess(); }
+function hasFullAccess() { return activeAccount?.scope === 'all'; }
+function hasNetworkAccess() { return hasFullAccess() || activeAccount?.scope === 'infrastructure'; }
+function canManageDevices() { return isAdmin() || activeAccount?.role === 'operator'; }
+function canEditDashboard() { return hasFullAccess() && canManageDevices(); }
+
 const pages = {
   overview: ['Обзор инфраструктуры', ''],
   servers: ['Все системы', ''],
@@ -48,7 +57,9 @@ let currentRoute = {page: 'overview', id: ''};
 
 function routeFromURL() {
   const [page, id = ''] = location.hash.slice(1).split('/');
-  if (!Object.hasOwn(pages, page)) return {page: 'overview', id: ''};
+  if (!Object.hasOwn(pages, page) || (page === 'network' && !hasNetworkAccess()) ||
+      (page === 'syslog' && !hasFullAccess())) return {page: 'overview', id: ''};
+  if (page === 'maps' && !hasFullAccess()) return {page: 'geomap', id: ''};
   if (page === 'server' && !/^[a-f0-9]{32}$/.test(id)) return {page: 'servers', id: ''};
   return {page, id: /^[a-zA-Z0-9_-]{1,48}$/.test(id) ? id : ''};
 }
@@ -65,6 +76,8 @@ function showRoute() {
   const route = routeFromURL();
   currentRoute = route;
   const {page, id} = route;
+  const hash = '#' + page + (id ? '/' + id : '');
+  if (location.hash && location.hash !== hash) history.replaceState(null, '', hash);
   document.querySelectorAll('[data-page]').forEach(button => {
     const active = button.dataset.page === ({server: 'servers', geomap: 'maps'}[page] || page);
     button.classList.toggle('active', active);
@@ -76,8 +89,9 @@ function showRoute() {
   document.querySelector('.heading').classList.toggle('hidden', page === 'servers');
   const [title, description] = pages[page];
   setPageTitle(title);
-  $('page-description').textContent = description;
-  $('page-description').classList.toggle('hidden', !description);
+  const subtitle = page === 'settings' && !isAdmin() ? '' : description;
+  $('page-description').textContent = subtitle;
+  $('page-description').classList.toggle('hidden', !subtitle);
   document.querySelector('.sidebar').classList.remove('open');
   if (old.page !== page || old.id !== id) window.scrollTo(0, 0);
   if (page === 'geomap' && (old.page !== page || old.id !== id)) selectGeoRoute(id);
@@ -95,15 +109,68 @@ function setPageTitle(title) {
   document.title = title + ' · Storavix';
 }
 
-async function api(url,opts={}){let r;try{r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json','X-Storavix-Request':'1',...(opts.headers||{})},...opts});}catch(e){throw new Error('Нет соединения с сервером Storavix')}let j;try{j=await r.json()}catch(_){throw new Error('Неверный ответ сервера')}if(!r.ok){if(r.status===401){showAuth();throw new Error('Сессия истекла. Войдите заново.')}throw new Error(j.error||`HTTP ${r.status}`)}return j}
+async function api(url, opts = {}) {
+  const epoch = sessionEpoch;
+  let response;
+  try {
+    response = await fetch(url, {...opts, credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-Storavix-Request': '1', ...opts.headers}});
+  } catch (error) {
+    throw new Error('Нет соединения с сервером Storavix');
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch (error) {
+    throw new Error('Неверный ответ сервера');
+  }
+  if (epoch !== sessionEpoch) throw new Error('Сессия изменилась. Повторите действие.');
+  if (!response.ok) {
+    if (response.status === 401 && url !== '/api/login') {
+      showAuth();
+      throw new Error('Сессия истекла. Войдите заново.');
+    }
+    throw new Error(body.error || 'HTTP ' + response.status);
+  }
+  return body;
+}
 function msg(id,text='',error=false){const el=$(id);el.textContent=text;el.classList.toggle('error',error)}
 function showAuth() {
   $('shell').classList.add('hidden');
   $('login').classList.remove('hidden');
+  if (session) {
+    sessionEpoch++;
+    resetDashboardSession();
+    resetUserForm();
+    systemsCache = [];
+    for (const id of ['systems-grid', 'detail-content', 'storage-servers', 'syslog-rows', 'users-list']) $(id).replaceChildren();
+    $('syslog-filter').reset();
+    syslogFilters = {};
+    syslogCursor = 0;
+    $('network-form').reset();
+    $('network-form').classList.add('hidden');
+    $('smtp-form').reset();
+    $('password-form').reset();
+  }
   session = false;
-  $('network-community').value = '';
+  activeAccount = undefined;
 }
-function showShell() {
+function showShell(account) {
+  if (!account) return showAuth();
+  activeAccount = account;
+  sessionEpoch++;
+  const avatar = $('user-avatar');
+  avatar.textContent = account.username.slice(0, 1).toUpperCase();
+  avatar.title = account.username;
+  document.querySelector('[data-page="network"]').classList.toggle('hidden', !hasNetworkAccess());
+  document.querySelector('[data-page="syslog"]').classList.toggle('hidden', !hasFullAccess());
+  document.querySelectorAll('a[href="#maps"]').forEach(link => link.classList.toggle('hidden', !hasFullAccess()));
+  $('network-add').classList.toggle('hidden', !canManageDevices());
+  $('network-check').classList.toggle('hidden', !canManageDevices());
+  $('geo-form').classList.toggle('hidden', !canManageDevices());
+  $('syslog-settings-link').classList.toggle('hidden', !isAdmin());
+  $('notification-history').classList.toggle('hidden', !hasFullAccess());
+  $('dashboard-edit').classList.toggle('hidden', !canEditDashboard());
   $('login').classList.add('hidden');
   $('shell').classList.remove('hidden');
   session = true;
@@ -122,7 +189,7 @@ function eventNode(event) {
 }
 async function loadMail(){try{const c=await api('/api/settings/mail');$('mail-host').value=c.host||'';$('mail-port').value=c.port||587;$('mail-security').value=c.security||'starttls';$('mail-auth').value=c.auth||'plain';$('mail-username').value=c.username||'';$('mail-from').value=c.from||'';$('mail-recipients').value=c.recipients||'';$('mail-ca').value=c.caFile||'';$('mail-password').value='';$('mail-password').placeholder=c.hasSecret?'Секрет сохранён — оставьте пустым':'Введите пароль или access token';mailMode()}catch(e){msg('smtp-msg',e.message,true)}}
 function mailMode(){const a=$('mail-auth').value;const none=a==='none';$('mail-username').disabled=none;$('mail-password').disabled=none;if($('mail-security').value==='none'&&!none){$('mail-auth').value='none';$('mail-username').disabled=true;$('mail-password').disabled=true}if($('mail-security').value==='none'&&$('mail-port').value==='587')$('mail-port').value='25'}
-$('login-form').addEventListener('submit',async e=>{e.preventDefault();msg('login-msg','Выполняется вход...');try{await api('/api/login',{method:'POST',body:JSON.stringify({username:$('login-user').value,password:$('login-pass').value})});$('login-pass').value='';msg('login-msg','');showShell()}catch(err){msg('login-msg',err.message,true)}});
+$('login-form').addEventListener('submit',async e=>{e.preventDefault();msg('login-msg','Выполняется вход...');try{const result=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('login-user').value,password:$('login-pass').value})});$('login-pass').value='';msg('login-msg','');showShell(result.user)}catch(err){msg('login-msg',err.message,true)}});
 $('logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'})}finally{showAuth()}});
 document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.page)));
 document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.goto)));
@@ -130,15 +197,18 @@ $('menu-toggle').addEventListener('click',()=>document.querySelector('.sidebar')
 $('alert-refresh').addEventListener('click', () => loadMonitoring());
 window.addEventListener('hashchange', showRoute);
 function showSettings(name) {
-  const tab = ['smtp', 'syslog', 'account'].includes(name) ? name : 'smtp';
+  const allowed = isAdmin() ? ['smtp', 'syslog', 'users', 'account'] : ['account'];
+  const tab = allowed.includes(name) ? name : allowed[0];
   document.querySelectorAll('[data-tab]').forEach(button => {
     const active = button.dataset.tab === tab;
+    button.classList.toggle('hidden', !allowed.includes(button.dataset.tab));
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
     $(button.dataset.tab + '-settings').classList.toggle('hidden', !active);
   });
   if (tab === 'smtp') loadMail();
   if (tab === 'syslog') loadSyslogSettings();
+  if (tab === 'users') loadAccounts();
 }
 
 document.querySelectorAll('[data-tab]').forEach(button =>
@@ -148,7 +218,7 @@ $('smtp-form').addEventListener('submit',async e=>{e.preventDefault();const c={h
 async function sendTest(endpoint){msg('smtp-msg','Отправляем письмо...');try{await api(endpoint,{method:'POST'});msg('smtp-msg','Письмо успешно отправлено. Проверьте входящие и папку «Спам».')}catch(e){msg('smtp-msg',e.message,true)}}
 $('test-email').addEventListener('click',()=>sendTest('/api/settings/mail/test'));
 $('test-alert').addEventListener('click',()=>sendTest('/api/alerts/test'));
-$('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');setTimeout(showAuth,900)}catch(err){msg('password-msg',err.message,true)}});
+$('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');showAuth()}catch(err){msg('password-msg',err.message,true)}});
 
 
 const panelAddress=document.getElementById('panel-address');if(panelAddress)panelAddress.textContent=window.location.host;
@@ -169,19 +239,21 @@ function makeSystemCard(r){const status=stateFor(r);const card=document.createEl
  const m=document.createElement('div');m.className='system-metrics';m.append(metricRow('cpu','ЦП:',fmtPercent(r.cpuPercent),r.cpuPercent),metricRow('memory','Память:',fmtPercent(r.memoryPercent),r.memoryPercent),metricRow('drive','Диск:',fmtPercent(r.diskPercent),r.diskPercent,90),metricRow('network','Сеть:',fmtRate(r.networkBytesPerSec)),metricRow('clock','Время работы:',fmtUptime(r.uptimeSeconds)),metricRow('drive','RAID:',fmtArrayCount(r)),metricRow('radio','Агент:',r.version||'—'));
  card.append(m);return card}
 function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||x.os.toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
-let systemsPending = false;
+let systemsPending = -1;
 async function loadSystems() {
-  if (systemsPending) return;
-  systemsPending = true;
+  const epoch = sessionEpoch;
+  if (systemsPending === epoch) return;
+  systemsPending = epoch;
   try {
     systemsCache = await api('/api/agents');
     renderSystems();
     renderStorage();
   } catch (e) {
+    if (epoch !== sessionEpoch) return;
     const root = currentRoute.page === 'servers' ? $('systems-grid') : $('storage-servers');
     root.replaceChildren(makeText('p', e.message, 'systems-note'));
   } finally {
-    systemsPending = false;
+    if (systemsPending === epoch) systemsPending = -1;
   }
 }
 
@@ -254,7 +326,8 @@ function renderServer(r) {
       remove.disabled = false;
     }
   });
-  actions.append(routeLink('Местоположение', 'geomap', r.id), remove);
+  actions.append(routeLink('Местоположение', 'geomap', r.id));
+  if (isAdmin()) actions.append(remove);
   d.replaceChildren(metrics, files, storage, actions);
 }
 

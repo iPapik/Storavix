@@ -50,7 +50,7 @@ function geoMap(id, editable = false) {
     tiles.on('tileload', () => status.classList.add('hidden'));
     if (editable) {
       map.on('click', ({latlng}) => {
-        if (!$('geo-device').value || geoWritePending) return;
+        if (!canManageDevices() || !$('geo-device').value || geoWritePending) return;
         const {lat, lng} = latlng.wrap();
         setGeoCoordinates({lat, lon: lng});
         $('geo-results').replaceChildren();
@@ -86,7 +86,7 @@ function geoMap(id, editable = false) {
         const item = document.createElement('div');
         const link = routeLink(target.name, target.kind === 'server' ? 'server' : 'network', target.id);
         item.append(link, statusTag(target.status), makeText('small', locationSummary(target)));
-        if (editable) item.append(action('Редактировать точку', () => {
+        if (editable && canManageDevices()) item.append(action('Редактировать точку', () => {
           $('geo-device').value = target.kind + ':' + target.id;
           editGeoLocation();
           $('geo-address').focus();
@@ -155,7 +155,7 @@ function renderGeoPage() {
       map.scrollIntoView({block: 'nearest'});
     }));
     return row;
-  }, 'Выберите устройство и сохраните адрес или координаты.');
+  }, canManageDevices() ? 'Выберите устройство и сохраните адрес или координаты.' : 'Для доступных устройств нет сохранённых точек.');
 }
 
 function setGeoCoordinates(point) {

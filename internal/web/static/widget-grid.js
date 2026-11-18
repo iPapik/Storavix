@@ -13,26 +13,50 @@ function widgetFits(layout, others) {
     layout.y < widgetRows && layout.x + layout.w <= widgetColumns && !others.some(other => widgetsOverlap(layout, other));
 }
 
-function layoutWidgets(widgets) {
-  const layout = new Map(widgets.filter(widget => widget.layout).map(widget => [widget.id, widget.layout]));
+function orderedWidgets(widgets) {
+  return [...widgets].sort((a, b) => (a.layout?.y ?? widgetRows) - (b.layout?.y ?? widgetRows) ||
+    (a.layout?.x ?? 0) - (b.layout?.x ?? 0));
+}
+
+function packWidgets(widgets, compact = false) {
+  const layout = compact ? new Map() : new Map(widgets.filter(widget => widget.layout).map(widget => [widget.id, widget.layout]));
   for (const widget of widgets) {
     if (layout.has(widget.id)) continue;
     const map = widget.type === 'map' || widget.type === 'geomap';
     const room = [...layout.values()];
-    const placed = {x: 0, y: 0, w: widget.wide ? 12 : 6, h: map ? 6 : 4};
-    for (let y = 0; y < widgetRows; y++) {
-      placed.y = y;
-      for (let x = 0; x <= widgetColumns - placed.w; x++) {
-        placed.x = x;
-        if (widgetFits(placed, room)) break;
-      }
-      if (widgetFits(placed, room)) {
-        layout.set(widget.id, placed);
-        break;
+    const w = widget.layout?.w ?? (widget.wide ? 12 : 6);
+    const h = widget.layout?.h ?? (map ? 6 : 4);
+    place: for (let y = 0; y < widgetRows; y++) {
+      for (let x = 0; x <= widgetColumns - w; x++) {
+        const position = {x, y, w, h};
+        if (widgetFits(position, room)) {
+          layout.set(widget.id, position);
+          break place;
+        }
       }
     }
   }
   return layout;
+}
+
+function layoutWidgets(widgets, compact = false) {
+  return packWidgets(compact ? orderedWidgets(widgets) : widgets, compact);
+}
+
+function applyWidgetLayout(widgets, positions) {
+  for (const widget of widgets) widget.layout = positions.get(widget.id);
+}
+
+function settleWidgetDraft() {
+  if (!dashboardDraft.fixedLayout) {
+    applyWidgetLayout(dashboardDraft.widgets, layoutWidgets(dashboardDraft.widgets, true));
+  }
+}
+
+function refreshWidgetHandle(widget, sizing) {
+  renderOverview();
+  const panel = [...$('widget-grid').children].find(el => el.dataset.widget === widget.id);
+  panel?.querySelector(sizing ? '.widget-grip' : '.widget-move')?.focus({preventScroll: true});
 }
 
 function drawWidgetPosition(panel, pos) {
@@ -57,7 +81,7 @@ function widgetHandle(widget, panel, sizing) {
       p.y = Math.max(0, Math.min(widgetRows - 1, p.y + dy));
     }
     const others = dashboardDraft.widgets.filter(item => item !== widget).map(item => item.layout);
-    const fits = widgetFits(p, others);
+    const fits = !dashboardDraft.fixedLayout || widgetFits(p, others);
     panel.classList.toggle('widget-blocked', !fits && !announce);
     if (fits) {
       widget.layout = p;
@@ -71,7 +95,25 @@ function widgetHandle(widget, panel, sizing) {
   handle.addEventListener('keydown', event => {
     if (!Object.hasOwn(widgetArrows, event.key)) return;
     event.preventDefault();
-    apply(...widgetArrows[event.key], widget.layout, true);
+    const [dx, dy] = widgetArrows[event.key];
+    if (dashboardDraft.fixedLayout) {
+      apply(dx, dy, widget.layout, true);
+      return;
+    }
+    if (sizing) {
+      apply(dx, dy, widget.layout, false);
+      settleWidgetDraft();
+    } else {
+      const sorted = orderedWidgets(dashboardDraft.widgets);
+      const index = sorted.indexOf(widget);
+      const target = index + dx + dy;
+      if (target < 0 || target >= sorted.length) return;
+      [sorted[index], sorted[target]] = [sorted[target], sorted[index]];
+      applyWidgetLayout(sorted, packWidgets(sorted, true));
+    }
+    refreshWidgetHandle(widget, sizing);
+    msg('dashboard-msg', 'Столбец ' + (widget.layout.x + 1) + ', строка ' + (widget.layout.y + 1)
+      + ' · ' + widget.layout.w + ' × ' + widget.layout.h);
   });
   handle.addEventListener('pointerdown', event => {
     if (!event.isPrimary || event.button !== 0 || !matchMedia('(min-width: 851px)').matches) return;
@@ -95,6 +137,10 @@ function widgetHandle(widget, panel, sizing) {
     const done = () => {
       panel.classList.remove('widget-dragging', 'widget-blocked');
       handle.removeEventListener('pointermove', move);
+      if (dashboardDraft && !dashboardDraft.fixedLayout) {
+        settleWidgetDraft();
+        refreshWidgetHandle(widget, sizing);
+      }
     };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('lostpointercapture', done, {once: true});

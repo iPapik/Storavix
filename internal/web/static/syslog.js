@@ -68,14 +68,14 @@ async function loadSyslogJournal(cursor = 0, quiet = false) {
     const query = new URLSearchParams(syslogFilters);
     if (cursor) query.set('before', cursor);
     const [data, state] = await Promise.all([
-      api('/api/syslog?' + query), api('/api/settings/syslog')
+      api('/api/syslog?' + query), isAdmin() ? api('/api/settings/syslog') : null
     ]);
     if (request !== syslogRequest) return;
     syslogCursor = cursor;
     syslogNext = data.next || 0;
     const status = $('syslog-listener-status');
-    status.textContent = syslogStateLabel(state);
-    status.className = 'tag ' + (state.error ? 'storage-warning' : state.active.length ? 'green' : 'grey');
+    status.textContent = state ? syslogStateLabel(state) : '';
+    status.className = state ? 'tag ' + (state.error ? 'storage-warning' : state.active.length ? 'green' : 'grey') : 'hidden';
     renderSyslogRows(data.items);
     $('syslog-older').classList.toggle('hidden', !syslogNext);
     $('syslog-latest').classList.toggle('hidden', !syslogCursor);

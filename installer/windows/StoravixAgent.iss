@@ -1,4 +1,4 @@
-#define AppVersion "0.2.12"
+#define AppVersion "0.2.13"
 #ifndef SourceRoot
 #define SourceRoot "..\.."
 #endif

@@ -29,6 +29,7 @@ jobs:
       - name: Browser JavaScript syntax
         run: |
           node --check internal/web/static/app.js
+          node --check internal/web/static/accounts.js
           node --check internal/web/static/dashboard.js
           node --check internal/web/static/widget-grid.js
           node --check internal/web/static/geo.js

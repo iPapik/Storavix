@@ -280,3 +280,13 @@ body{font-size:16px}
   .widget-body:not(.widget-geo){max-height:320px}
 }
 @media(max-width:500px){.overview-stats{grid-template-columns:minmax(0,1fr)}}
+
+label.check-field{display:inline-flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;margin:0}
+label.check-field input[type="checkbox"]{flex:none}
+.syslog-heading{flex-wrap:wrap;gap:12px}
+.syslog-heading .toolbar-actions{justify-content:flex-start;gap:14px}
+#users-settings .settings-heading{flex-wrap:wrap;gap:12px}
+#user-form{margin-bottom:16px}
+#user-role-hint{font-size:13px;line-height:1.55}
+.overview-stats.stats-servers-only{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:500px){.overview-stats.stats-servers-only{grid-template-columns:minmax(0,1fr)}}
