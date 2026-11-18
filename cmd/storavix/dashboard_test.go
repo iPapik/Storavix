@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -47,11 +48,7 @@ func TestDashboardSettingsAndAgentDetail(t *testing.T) {
 		t.Fatalf("missing active RAID alarm: %d %s", response.Code, response.Body.String())
 	}
 	config := defaultDashboard()
-	config.Maps[0].Nodes = []MapNode{
-		{ID: "server", Kind: "server", Ref: "0123456789abcdef0123456789abcdef", X: 25, Y: 30},
-		{ID: "switch", Kind: "switch", Ref: "sw01", X: 75, Y: 30},
-	}
-	config.Maps[0].Links = []MapLink{{From: "server", To: "switch", Label: "Gi24"}}
+	config.Widgets[0].Layout = &WidgetLayout{X: 1, Y: 2, W: 6, H: 4}
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
@@ -67,12 +64,12 @@ func TestDashboardSettingsAndAgentDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored := restart.dashboardConfig()
-	if stored.Revision != 1 || len(stored.Maps[0].Links) != 1 || stored.Maps[0].Links[0].Label != "Gi24" {
+	if stored.Revision != 1 || stored.Widgets[0].Layout == nil || stored.Widgets[0].Layout.X != 1 {
 		t.Fatalf("dashboard settings missing after restart: %+v", stored)
 	}
-	stored.Maps[0].Links[0].To = "missing"
+	stored.Widgets[0].Type = "map"
 	if stored.validate() == nil {
-		t.Fatal("map accepted a link to an unknown node")
+		t.Fatal("accepted removed topology widget")
 	}
 }
 
@@ -85,7 +82,8 @@ func TestDashboardStaleAgentDoesNotReportHealthyRAID(t *testing.T) {
 	s.agents["old"] = telemetry.Report{ID: "old", Hostname: "Old", ReceivedAt: time.Now().Add(-5 * time.Minute),
 		Arrays: []telemetry.Array{{Name: "Data", Status: "active"}}}
 	w := httptest.NewRecorder()
-	s.getDashboardData(w, httptest.NewRequest("GET", "/", nil))
+	r := httptest.NewRequest("GET", "/", nil)
+	s.getDashboardData(w, r.WithContext(context.WithValue(r.Context(), accountContextKey{}, Account{Scope: scopeAll})))
 	var data DashboardData
 	if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
 		t.Fatal(err)

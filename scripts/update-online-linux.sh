@@ -247,7 +247,6 @@ printf '\n=============================================\n'
 printf ' Storavix успешно обновлён до %s\n' "$COMMIT"
 printf ' Служба:       sudo systemctl status storavix\n'
 printf ' Web UI:       %s\n' "${HEALTH_URL%/api/health}"
-printf ' Следующий раз: sudo storavix-update\n'
 printf ' Резервная копия: %s\n' "$BACKUP"
 printf ' Журнал: sudo journalctl -u storavix -n 60 --no-pager\n'
 printf '=============================================\n'

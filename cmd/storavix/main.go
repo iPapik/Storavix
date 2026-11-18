@@ -35,7 +35,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.13"
+const version = "0.2.14"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -67,6 +67,7 @@ type State struct {
 	Alerts          []Alert                   `json:"alerts"`
 	Dashboard       *DashboardConfig          `json:"dashboard,omitempty"`
 	Network         []NetworkConfig           `json:"network,omitempty"`
+	SNMPTraps       SNMPTrapConfig            `json:"snmpTraps,omitempty"`
 	Syslog          SyslogConfig              `json:"syslog,omitempty"`
 	Locations       map[string]DeviceLocation `json:"locations,omitempty"`
 }
@@ -84,6 +85,7 @@ type server struct {
 	networkSamples map[string]networkSample
 	networkWake    chan struct{}
 	syslog         *syslogReceiver
+	snmp           *snmpJournal
 	geocoder       geoSearch
 }
 
@@ -123,9 +125,24 @@ func serve(dir, addr string) error {
 			log.Printf("start syslog listeners: %v", err)
 		}
 	}
+	journal, err := openSNMPJournal(dir)
+	if err != nil {
+		log.Printf("open SNMP journal: %v", err)
+	} else {
+		s.snmp = journal
+		defer journal.close()
+		if err := s.configureSNMPTraps(s.state.SNMPTraps.defaults(), nil); err != nil {
+			journal.startError = err.Error()
+			log.Printf("start SNMP notifications: %v", err)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	go s.pollNetwork(ctx)
+	networkDone := make(chan struct{})
+	go func() {
+		defer close(networkDone)
+		s.pollNetwork(ctx)
+	}()
+	defer func() { stop(); <-networkDone }()
 	h := s.routes()
 	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
 	shutdownDone := make(chan struct{})
@@ -344,12 +361,16 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/settings/users/{username}", s.authorize(Account.admin, s.sendAccountChange))
 	mux.HandleFunc("DELETE /api/settings/users/{username}", s.authorize(Account.admin, s.sendAccountChange))
 
-	mux.HandleFunc("GET /api/agents", s.requireAuth(s.getAgents))
-	mux.HandleFunc("GET /api/agents/{id}", s.requireAuth(s.getAgent))
+	mux.HandleFunc("GET /api/agents", s.authorize(Account.servers, s.getAgents))
+	mux.HandleFunc("GET /api/agents/{id}", s.authorize(Account.servers, s.getAgent))
 	mux.HandleFunc("GET /api/dashboard", s.requireAuth(s.getDashboardData))
 	mux.HandleFunc("GET /api/dashboard/config", s.requireAuth(s.getDashboardConfig))
 	mux.HandleFunc("PUT /api/dashboard/config", s.authorize(func(a Account) bool { return a.full() && a.write() }, s.putDashboardConfig))
 	mux.HandleFunc("GET /api/network", s.authorize(Account.network, s.getNetwork))
+	mux.HandleFunc("GET /api/network/events", s.authorize(Account.network, s.getSNMPEvents))
+	mux.HandleFunc("GET /api/settings/snmp", s.authorize(Account.admin, s.snmpTrapStatus))
+	mux.HandleFunc("PUT /api/settings/snmp", s.authorize(Account.admin, s.saveSNMPTraps))
+
 	mux.HandleFunc("PUT /api/network/{id}", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.putNetworkDevice))
 	mux.HandleFunc("DELETE /api/network/{id}", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.deleteNetworkDevice))
 	mux.HandleFunc("POST /api/network/check", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.requestNetworkPoll))
@@ -462,6 +483,9 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 		mailReady = false
 	}
 	online := s.onlineCount()
+	if !user.servers() {
+		hosts, arrays, drives, online = 0, 0, 0, 0
+	}
 	s.mu.Unlock()
 	sendJSON(w, 200, map[string]any{"hosts": hosts, "arrays": arrays, "drives": drives, "network": network, "events": total, "mailConfigured": mailReady, "collectorsActive": online, "mode": "live", "version": version})
 }

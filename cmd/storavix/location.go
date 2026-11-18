@@ -25,8 +25,9 @@ func (p DeviceLocation) valid() bool {
 
 func (s *server) saveLocation(w http.ResponseWriter, r *http.Request) {
 	kind, id := r.PathValue("kind"), r.PathValue("id")
-	if kind == "switch" && !requestAccount(r).network() {
-		problem(w, http.StatusForbidden, "Нет доступа к коммутаторам")
+	user := requestAccount(r)
+	if kind == "switch" && !user.network() || kind == "server" && !user.servers() {
+		problem(w, http.StatusForbidden, "Нет доступа к устройству")
 		return
 	}
 	key := kind + ":" + id

@@ -22,7 +22,7 @@ function packWidgets(widgets, compact = false) {
   const layout = compact ? new Map() : new Map(widgets.filter(widget => widget.layout).map(widget => [widget.id, widget.layout]));
   for (const widget of widgets) {
     if (layout.has(widget.id)) continue;
-    const map = widget.type === 'map' || widget.type === 'geomap';
+    const map = widget.type === 'geomap';
     const room = [...layout.values()];
     const w = widget.layout?.w ?? (widget.wide ? 12 : 6);
     const h = widget.layout?.h ?? (map ? 6 : 4);
@@ -48,9 +48,7 @@ function applyWidgetLayout(widgets, positions) {
 }
 
 function settleWidgetDraft() {
-  if (!dashboardDraft.fixedLayout) {
-    applyWidgetLayout(dashboardDraft.widgets, layoutWidgets(dashboardDraft.widgets, true));
-  }
+  applyWidgetLayout(dashboardDraft.widgets, layoutWidgets(dashboardDraft.widgets, true));
 }
 
 function refreshWidgetHandle(widget, sizing) {
@@ -71,7 +69,7 @@ function widgetHandle(widget, panel, sizing) {
   handle.title = label + ' · используйте мышь или стрелки';
   handle.setAttribute('aria-label', label);
 
-  const apply = (dx, dy, initial, announce = false) => {
+  const apply = (dx, dy, initial) => {
     const p = {...initial};
     if (sizing) {
       p.w = Math.max(3, Math.min(widgetColumns - p.x, p.w + dx));
@@ -80,28 +78,15 @@ function widgetHandle(widget, panel, sizing) {
       p.x = Math.max(0, Math.min(widgetColumns - p.w, p.x + dx));
       p.y = Math.max(0, Math.min(widgetRows - 1, p.y + dy));
     }
-    const others = dashboardDraft.widgets.filter(item => item !== widget).map(item => item.layout);
-    const fits = !dashboardDraft.fixedLayout || widgetFits(p, others);
-    panel.classList.toggle('widget-blocked', !fits && !announce);
-    if (fits) {
-      widget.layout = p;
-      drawWidgetPosition(panel, p);
-    }
-    if (announce) {
-      msg('dashboard-msg', fits ? 'Столбец ' + (p.x + 1) + ', строка ' + (p.y + 1) + ' · ' + p.w + ' × ' + p.h
-        : 'Эта область уже занята другим виджетом.', !fits);
-    }
+    widget.layout = p;
+    drawWidgetPosition(panel, p);
   };
   handle.addEventListener('keydown', event => {
     if (!Object.hasOwn(widgetArrows, event.key)) return;
     event.preventDefault();
     const [dx, dy] = widgetArrows[event.key];
-    if (dashboardDraft.fixedLayout) {
-      apply(dx, dy, widget.layout, true);
-      return;
-    }
     if (sizing) {
-      apply(dx, dy, widget.layout, false);
+      apply(dx, dy, widget.layout);
       settleWidgetDraft();
     } else {
       const sorted = orderedWidgets(dashboardDraft.widgets);
@@ -135,9 +120,9 @@ function widgetHandle(widget, panel, sizing) {
       if (direction) window.scrollBy(0, direction * 40);
     };
     const done = () => {
-      panel.classList.remove('widget-dragging', 'widget-blocked');
+      panel.classList.remove('widget-dragging');
       handle.removeEventListener('pointermove', move);
-      if (dashboardDraft && !dashboardDraft.fixedLayout) {
+      if (dashboardDraft) {
         settleWidgetDraft();
         refreshWidgetHandle(widget, sizing);
       }

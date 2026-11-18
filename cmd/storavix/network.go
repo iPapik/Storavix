@@ -57,6 +57,7 @@ type NetworkDevice struct {
 
 type networkSample struct {
 	generation string
+	address    string
 	status     string
 	at         time.Time
 	system     string
@@ -312,12 +313,17 @@ func (s *server) pollDevice(ctx context.Context, n NetworkConfig) {
 		addPortRates(&sample, old)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	accepted := false
 	for _, current := range s.state.Network {
 		if current.ID == n.ID && current.Generation == n.Generation {
 			s.networkSamples[n.ID] = sample
+			accepted = true
 			break
 		}
+	}
+	s.mu.Unlock()
+	if accepted && s.snmp != nil {
+		_ = s.snmp.append(snmpPollEvents(n, old, sample))
 	}
 }
 
@@ -338,8 +344,9 @@ func pollSNMP(ctx context.Context, n NetworkConfig, community string, sample *ne
 		sample.message = "Адрес коммутатора не разрешается"
 		return
 	}
+	sample.address = addresses[0].IP.String()
 	client := &gosnmp.GoSNMP{
-		Target: addresses[0].IP.String(), Port: n.Port, Transport: "udp", Community: community,
+		Target: sample.address, Port: n.Port, Transport: "udp", Community: community,
 		Version: gosnmp.Version2c, Timeout: 750 * time.Millisecond, MaxRepetitions: 24, Context: ctx,
 	}
 	if client.Connect() != nil {

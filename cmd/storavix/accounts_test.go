@@ -25,7 +25,6 @@ func TestAccountPermissionsAndRevocation(t *testing.T) {
 	s.agents["host"] = telemetry.Report{ID: "host", Hostname: "Test-Server", ReceivedAt: time.Now()}
 	s.state.Dashboard = &DashboardConfig{
 		Widgets: []Widget{{ID: "raid", Type: "raid"}, {ID: "switches", Type: "network"}, {ID: "events", Type: "events"}},
-		Maps:    []TopologyMap{{ID: "net-main", Name: "Restricted-Topology"}},
 	}
 	router := s.routes()
 	call := func(method, path, data string, cookie *http.Cookie, want int) *httptest.ResponseRecorder {
@@ -54,6 +53,7 @@ func TestAccountPermissionsAndRevocation(t *testing.T) {
 	call("POST", users, `{"username":"Read","password":"read-password","role":"viewer","scope":"servers"}`, owner, 409)
 	call("POST", users, `{"username":"network","password":"network-password","role":"operator","scope":"infrastructure"}`, owner, 201)
 	call("POST", users, `{"username":"audit","password":"audit-password","role":"viewer","scope":"all"}`, owner, 201)
+	call("POST", users, `{"username":"switches","password":"switches-password","role":"operator","scope":"switches"}`, owner, 201)
 	call("POST", users, `{"username":"limited-admin","password":"test-password","role":"admin","scope":"servers"}`, owner, 400)
 	list := call("GET", users, "", owner, 200).Body.String()
 	for _, secret := range []string{"passHash", "salt", "network-password"} {
@@ -65,7 +65,18 @@ func TestAccountPermissionsAndRevocation(t *testing.T) {
 	viewer := login("READ", "read-password")
 	network := login("network", "network-password")
 	audit := login("audit", "audit-password")
-	for _, path := range []string{"/api/network", "/api/syslog", "/api/alerts", "/api/settings/mail", "/api/settings/syslog", users} {
+	switches := login("switches", "switches-password")
+	call("GET", "/api/agents", "", switches, 403)
+	call("GET", "/api/agents/host", "", switches, 403)
+	call("PUT", "/api/locations/server/host", `{"lat":0,"lon":0}`, switches, 403)
+	call("GET", "/api/network", "", switches, 200)
+	switchData := call("GET", "/api/dashboard", "", switches, 200).Body.String()
+	switchConfig := call("GET", "/api/dashboard/config", "", switches, 200).Body.String()
+	if strings.Contains(switchData, "Test-Server") || !strings.Contains(switchData, "Restricted-Switch") ||
+		strings.Contains(switchConfig, `"type":"raid"`) {
+		t.Fatalf("switch-only overview exposes servers: %s; %s", switchData, switchConfig)
+	}
+	for _, path := range []string{"/api/network", "/api/network/events", "/api/settings/snmp", "/api/syslog", "/api/alerts", "/api/settings/mail", "/api/settings/syslog", users} {
 		call("GET", path, "", viewer, 403)
 	}
 	call("GET", "/api/agents/host", "", viewer, 200)
@@ -75,7 +86,7 @@ func TestAccountPermissionsAndRevocation(t *testing.T) {
 	data := call("GET", "/api/dashboard", "", viewer, 200).Body.String()
 	config := call("GET", "/api/dashboard/config", "", viewer, 200).Body.String()
 	if !strings.Contains(data, "Test-Server") || strings.Contains(data, "Restricted-") || strings.Contains(data, "switch:net") ||
-		strings.Contains(config, "Restricted-Topology") || strings.Contains(config, `"type":"network"`) || strings.Contains(config, `"type":"events"`) {
+		strings.Contains(config, `"type":"network"`) || strings.Contains(config, `"type":"events"`) {
 		t.Fatalf("scoped overview: %s; config: %s", data, config)
 	}
 	call("GET", "/api/network", "", network, 200)

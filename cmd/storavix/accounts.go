@@ -16,9 +16,10 @@ const (
 	roleOperator = "operator"
 	roleAdmin    = "admin"
 
-	scopeServers = "servers"
-	scopeNetwork = "infrastructure"
-	scopeAll     = "all"
+	scopeServers  = "servers"
+	scopeNetwork  = "infrastructure"
+	scopeSwitches = "switches"
+	scopeAll      = "all"
 )
 
 type Account struct {
@@ -39,17 +40,22 @@ type userSession struct {
 	Expires    time.Time
 }
 
-func (a Account) admin() bool   { return a.Role == roleAdmin && a.Scope == scopeAll }
-func (a Account) network() bool { return a.Scope == scopeNetwork || a.Scope == scopeAll }
-func (a Account) full() bool    { return a.Scope == scopeAll }
-func (a Account) write() bool   { return a.Role == roleOperator || a.admin() }
+func (a Account) admin() bool { return a.Role == roleAdmin && a.Scope == scopeAll }
+func (a Account) network() bool {
+	return a.Scope == scopeNetwork || a.Scope == scopeAll || a.Scope == scopeSwitches
+}
+func (a Account) servers() bool {
+	return a.Scope == scopeServers || a.Scope == scopeNetwork || a.Scope == scopeAll
+}
+func (a Account) full() bool  { return a.Scope == scopeAll }
+func (a Account) write() bool { return a.Role == roleOperator || a.admin() }
 
 func (a Account) valid() bool {
 	if a.Role == roleAdmin {
 		return a.Scope == scopeAll
 	}
 	return (a.Role == roleOperator || a.Role == roleViewer) &&
-		(a.Scope == scopeServers || a.Scope == scopeNetwork || a.Scope == scopeAll)
+		(a.Scope == scopeServers || a.Scope == scopeNetwork || a.Scope == scopeAll || a.Scope == scopeSwitches)
 }
 
 func accountKey(username string) string { return strings.ToLower(strings.TrimSpace(username)) }

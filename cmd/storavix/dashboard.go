@@ -14,7 +14,6 @@ type Widget struct {
 	ID     string        `json:"id"`
 	Type   string        `json:"type"`
 	Wide   bool          `json:"wide"`
-	MapID  string        `json:"mapId,omitempty"`
 	Layout *WidgetLayout `json:"layout,omitempty"`
 }
 
@@ -34,32 +33,9 @@ func (p WidgetLayout) overlaps(other WidgetLayout) bool {
 	return p.X < other.X+other.W && other.X < p.X+p.W && p.Y < other.Y+other.H && other.Y < p.Y+p.H
 }
 
-type MapNode struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
-	Ref  string `json:"ref"`
-	X    int    `json:"x"`
-	Y    int    `json:"y"`
-}
-
-type MapLink struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Label string `json:"label,omitempty"`
-}
-
-type TopologyMap struct {
-	ID    string    `json:"id"`
-	Name  string    `json:"name"`
-	Nodes []MapNode `json:"nodes"`
-	Links []MapLink `json:"links"`
-}
-
 type DashboardConfig struct {
-	Revision    uint64        `json:"revision"`
-	Widgets     []Widget      `json:"widgets"`
-	Maps        []TopologyMap `json:"maps"`
-	FixedLayout bool          `json:"fixedLayout,omitempty"`
+	Revision uint64   `json:"revision"`
+	Widgets  []Widget `json:"widgets"`
 }
 
 var configID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,48}$`)
@@ -68,9 +44,8 @@ func defaultDashboard() DashboardConfig {
 	return DashboardConfig{
 		Widgets: []Widget{
 			{ID: "raid", Type: "raid"}, {ID: "problems", Type: "problems"},
-			{ID: "switches", Type: "network", Wide: true}, {ID: "map", Type: "map", Wide: true, MapID: "main"},
+			{ID: "switches", Type: "network", Wide: true}, {ID: "geomap", Type: "geomap", Wide: true},
 		},
-		Maps: []TopologyMap{{ID: "main", Name: "Инфраструктура", Nodes: []MapNode{}, Links: []MapLink{}}},
 	}
 }
 
@@ -82,36 +57,8 @@ func (s *server) dashboardConfig() DashboardConfig {
 }
 
 func (c DashboardConfig) validate() error {
-	if c.Widgets == nil || c.Maps == nil || len(c.Widgets) > 16 || len(c.Maps) > 8 {
-		return errors.New("Допустимо до 16 виджетов и до 8 карт")
-	}
-	maps := make(map[string]bool, len(c.Maps))
-	for _, m := range c.Maps {
-		if !configID.MatchString(m.ID) || maps[m.ID] || strings.TrimSpace(m.Name) == "" || len([]rune(m.Name)) > 64 ||
-			len(m.Nodes) > 40 || len(m.Links) > 80 {
-			return errors.New("Некорректная карта. На карте допустимо до 40 узлов и до 80 связей")
-		}
-		maps[m.ID] = true
-		nodes := make(map[string]bool, len(m.Nodes))
-		var pairs = map[[2]string]bool{}
-		for _, n := range m.Nodes {
-			if !configID.MatchString(n.ID) || !configID.MatchString(n.Ref) || nodes[n.ID] ||
-				(n.Kind != "server" && n.Kind != "switch") || n.X < 0 || n.X > 100 || n.Y < 0 || n.Y > 100 {
-				return errors.New("Некорректный узел карты")
-			}
-			nodes[n.ID] = true
-		}
-		for _, link := range m.Links {
-			a, b := link.From, link.To
-			if a > b {
-				a, b = b, a
-			}
-			pair := [2]string{a, b}
-			if a == b || !nodes[a] || !nodes[b] || pairs[pair] || len([]rune(link.Label)) > 48 {
-				return errors.New("Некорректная или повторная связь на карте")
-			}
-			pairs[pair] = true
-		}
+	if c.Widgets == nil || len(c.Widgets) > 16 {
+		return errors.New("Допустимо до 16 виджетов")
 	}
 	widgets := map[string]bool{}
 	var positions []WidgetLayout
@@ -133,13 +80,6 @@ func (c DashboardConfig) validate() error {
 		}
 		switch w.Type {
 		case "raid", "network", "problems", "events", "servers", "geomap":
-			if w.MapID != "" {
-				return errors.New("Карта доступна в виджете топологии")
-			}
-		case "map":
-			if !maps[w.MapID] {
-				return errors.New("Выберите существующую карту")
-			}
 		default:
 			return errors.New("Неизвестный тип виджета")
 		}
@@ -152,18 +92,27 @@ func (s *server) getDashboardConfig(w http.ResponseWriter, r *http.Request) {
 	config := s.dashboardConfig()
 	s.mu.Unlock()
 	user := requestAccount(r)
-	if !user.full() {
-		widgets := make([]Widget, 0, len(config.Widgets))
-		for _, widget := range config.Widgets {
-			if widget.Type == "map" || widget.Type == "events" || widget.Type == "network" && !user.network() {
+	widgets := make([]Widget, 0, len(config.Widgets))
+	for _, widget := range config.Widgets {
+		switch widget.Type {
+		case "map": // Removed network topology widgets from older dashboards.
+			continue
+		case "raid", "servers":
+			if !user.servers() {
 				continue
 			}
-			widgets = append(widgets, widget)
+		case "network":
+			if !user.network() {
+				continue
+			}
+		case "events":
+			if !user.full() {
+				continue
+			}
 		}
-		config.Widgets = widgets
-		config.Maps = []TopologyMap{}
-		config.FixedLayout = false
+		widgets = append(widgets, widget)
 	}
+	config.Widgets = widgets
 
 	sendJSON(w, http.StatusOK, config)
 }
@@ -240,11 +189,14 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 	}
 	for key, pos := range s.state.Locations {
 		kind, id, _ := strings.Cut(key, ":")
-		if (kind != "switch" || user.network()) && s.locationDeviceExists(kind, id) {
+		if (kind == "switch" && user.network() || kind == "server" && user.servers()) && s.locationDeviceExists(kind, id) {
 			data.Locations[key] = pos
 		}
 	}
 	for _, r := range s.agents {
+		if !user.servers() {
+			break
+		}
 		offline := now.Sub(r.ReceivedAt) > 120*time.Second
 		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up"}
 		if offline {

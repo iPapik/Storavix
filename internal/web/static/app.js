@@ -26,7 +26,7 @@ trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>',
 info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7h.01"/>'
 };
 function makeIcon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','ui-icon');svg.setAttribute('aria-hidden','true');svg.innerHTML=ICONS[name]||ICONS.info;return svg}
-document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','network','logs','bell','settings'][i]||'info')));
+document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','logs','bell','settings'][i]||'info')));
 document.querySelectorAll('.empty-icon').forEach((el,i)=>el.replaceChildren(makeIcon(i===0?'drives':'logs')));
 $('menu-toggle').replaceChildren(makeIcon('menu'));
 $('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode(' Обновить'));
@@ -37,7 +37,8 @@ let activeAccount;
 
 function isAdmin() { return activeAccount?.role === 'admin' && hasFullAccess(); }
 function hasFullAccess() { return activeAccount?.scope === 'all'; }
-function hasNetworkAccess() { return hasFullAccess() || activeAccount?.scope === 'infrastructure'; }
+function hasNetworkAccess() { return ['all', 'infrastructure', 'switches'].includes(activeAccount?.scope); }
+function hasServerAccess() { return ['all', 'infrastructure', 'servers'].includes(activeAccount?.scope); }
 function canManageDevices() { return isAdmin() || activeAccount?.role === 'operator'; }
 function canEditDashboard() { return hasFullAccess() && canManageDevices(); }
 
@@ -46,10 +47,9 @@ const pages = {
   servers: ['Все системы', ''],
   server: ['Данные сервера', ''],
   storage: ['RAID и диски', 'Контроллеры, массивы и физические накопители'],
-  network: ['Коммутаторы', 'Доступность, состояние интерфейсов и трафик'],
-  maps: ['Карты', 'Топология серверов и коммутаторов'],
+  network: ['SNMP', 'Доступность коммутаторов, состояние интерфейсов и трафик'],
+  'snmp-events': ['Журнал SNMP', ''],
   syslog: ['Журнал Syslog', ''],
-  geomap: ['Геокарта оборудования', ''],
   alerts: ['События и алерты', ''],
   settings: ['Настройки', 'SMTP, Syslog и безопасность']
 };
@@ -57,9 +57,9 @@ let currentRoute = {page: 'overview', id: ''};
 
 function routeFromURL() {
   const [page, id = ''] = location.hash.slice(1).split('/');
-  if (!Object.hasOwn(pages, page) || (page === 'network' && !hasNetworkAccess()) ||
+  if (!Object.hasOwn(pages, page) || (['network', 'snmp-events'].includes(page) && !hasNetworkAccess()) ||
+      (['servers', 'server', 'storage'].includes(page) && !hasServerAccess()) ||
       (page === 'syslog' && !hasFullAccess())) return {page: 'overview', id: ''};
-  if (page === 'maps' && !hasFullAccess()) return {page: 'geomap', id: ''};
   if (page === 'server' && !/^[a-f0-9]{32}$/.test(id)) return {page: 'servers', id: ''};
   return {page, id: /^[a-zA-Z0-9_-]{1,48}$/.test(id) ? id : ''};
 }
@@ -79,7 +79,7 @@ function showRoute() {
   const hash = '#' + page + (id ? '/' + id : '');
   if (location.hash && location.hash !== hash) history.replaceState(null, '', hash);
   document.querySelectorAll('[data-page]').forEach(button => {
-    const active = button.dataset.page === ({server: 'servers', geomap: 'maps'}[page] || page);
+    const active = button.dataset.page === ({server: 'servers', 'snmp-events': 'network'}[page] || page);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -94,11 +94,11 @@ function showRoute() {
   $('page-description').classList.toggle('hidden', !subtitle);
   document.querySelector('.sidebar').classList.remove('open');
   if (old.page !== page || old.id !== id) window.scrollTo(0, 0);
-  if (page === 'geomap' && (old.page !== page || old.id !== id)) selectGeoRoute(id);
-  if (page === 'overview' || page === 'maps' || page === 'geomap' || page === 'alerts') loadMonitoring();
+  if (page === 'overview' || page === 'alerts') loadMonitoring();
   if (page === 'servers' || page === 'storage') loadSystems();
   if (page === 'server') loadServer(id, true);
   if (page === 'network') loadNetwork();
+  if (page === 'snmp-events') openSNMPJournal(old.page !== page || old.id !== id, id);
   if (page === 'settings') showSettings(id);
   if (page === 'syslog') openSyslogJournal(old.page !== page);
 }
@@ -142,6 +142,7 @@ function showAuth() {
     sessionEpoch++;
     resetDashboardSession();
     resetUserForm();
+    resetSNMPJournal();
     systemsCache = [];
     for (const id of ['systems-grid', 'detail-content', 'storage-servers', 'syslog-rows', 'users-list']) $(id).replaceChildren();
     $('syslog-filter').reset();
@@ -164,10 +165,11 @@ function showShell(account) {
   avatar.title = account.username;
   document.querySelector('[data-page="network"]').classList.toggle('hidden', !hasNetworkAccess());
   document.querySelector('[data-page="syslog"]').classList.toggle('hidden', !hasFullAccess());
-  document.querySelectorAll('a[href="#maps"]').forEach(link => link.classList.toggle('hidden', !hasFullAccess()));
+  for (const page of ['servers', 'storage']) {
+    document.querySelector('[data-page="' + page + '"]').classList.toggle('hidden', !hasServerAccess());
+  }
   $('network-add').classList.toggle('hidden', !canManageDevices());
   $('network-check').classList.toggle('hidden', !canManageDevices());
-  $('geo-form').classList.toggle('hidden', !canManageDevices());
   $('syslog-settings-link').classList.toggle('hidden', !isAdmin());
   $('notification-history').classList.toggle('hidden', !hasFullAccess());
   $('dashboard-edit').classList.toggle('hidden', !canEditDashboard());
@@ -326,7 +328,6 @@ function renderServer(r) {
       remove.disabled = false;
     }
   });
-  actions.append(routeLink('Местоположение', 'geomap', r.id));
   if (isAdmin()) actions.append(remove);
   d.replaceChildren(metrics, files, storage, actions);
 }

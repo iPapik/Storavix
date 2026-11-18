@@ -134,7 +134,7 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .storage-cell-note{display:block;margin-top:5px}
 
 
-/* Overview, server pages and topology. */
+/* Overview and server pages. */
 .app .topbar,.app .footer{width:100%;min-width:0}
 .app .topbar{min-height:60px;height:auto;padding-block:8px;gap:12px}
 .breadcrumb{min-width:0;overflow-wrap:anywhere}
@@ -176,7 +176,6 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .event-list-row>div{flex:1 1 150px}
 .event-list-row time{font-size:13px}
 .empty-note{font-size:14px;margin:12px 0;line-height:1.5}
-.widget-map-name{font-size:13px;margin:0 0 8px}
 .server-detail,.alerts-panels,.network-devices{display:grid;gap:14px}
 .server-detail h2,.alerts-panels h2{margin:0 0 14px}
 .server-detail .detail-row strong{text-align:right;overflow-wrap:anywhere}
@@ -189,29 +188,6 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .network-device>summary>*+*{margin-left:10px}
 .network-device-details{margin-top:12px;display:grid;gap:10px}
 .network-device-details p{margin:0;font-size:14px}
-.map-editor-tools{display:grid;grid-template-columns:1fr 2fr;gap:12px}
-#map-edit-list{display:grid;gap:14px;margin-top:14px}
-.map-panel{padding:10px}
-.topology-scroll{max-width:100%;overflow:auto}
-.topology{position:relative;min-width:570px;min-height:320px;aspect-ratio:2;
-  background:radial-gradient(circle,#3a3a3a 1px,transparent 1px) 0 0/16px 16px,#171717;border-radius:8px}
-.dashboard-widget .topology{min-height:245px}
-.topology-lines{width:100%;height:100%;position:absolute;inset:0;pointer-events:none}
-.topology-lines line{stroke:#7a919a;stroke-width:2;vector-effect:non-scaling-stroke}
-.topology-lines .edge-down{stroke:#c96c76;stroke-dasharray:5 4}
-.topology-node,.topology-label{position:absolute;transform:translate(-50%,-50%)}
-.topology-node{display:grid;grid-template-columns:20px minmax(0,1fr);gap:2px 6px;align-items:center;
-  border:1px solid #666;border-radius:8px;padding:5px 7px;width:100px;background:#242424;color:#ececec;text-decoration:none;font-size:12px}
-.topology-node strong,.topology-node small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topology-node .ui-icon{grid-row:span 2;width:17px;height:17px}
-.topology-node small{color:#c0c0c0;font-size:10px}
-.topology-node.up{border-color:#379769}
-.topology-node.warning{border-color:#b98740}
-.topology-node.down{border-color:#c96c76}
-.topology-node:focus-visible,.topology-node:hover{outline:2px solid #e1e1e1}
-.topology-editable .topology-node{cursor:grab;touch-action:none;user-select:none}
-.topology-label{background:#222;color:#ccc;padding:2px 4px;border-radius:4px;pointer-events:none;font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.map-coordinate{width:62px}
 @media(max-width:850px){
   .app{grid-template-columns:minmax(0,1fr)}
   .app .sidebar{position:fixed;transform:translateX(-100%);transition:.2s}
@@ -220,7 +196,6 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
   .app .topbar{justify-content:flex-start;padding-inline:16px}
   .top-actions{margin-left:auto}
   .overview-stats,.server-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .map-editor-tools{grid-template-columns:minmax(0,1fr)}
 }
 @media(max-width:480px){
   .app .top-actions{gap:6px}
@@ -237,10 +212,8 @@ body{font-size:16px}
 .dashboard-widget{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
 .dashboard-widget>header{flex:none;margin-bottom:8px}
 .widget-grid-editing .dashboard-widget{outline:1px dashed #4f705a;outline-offset:-2px}
-.widget-grid-editing .widget-blocked{outline:2px solid #c96c76}
 .widget-grid-editing .widget-dragging{z-index:20}
 .widget-body{min-height:0;overflow:auto;flex:1}
-.widget-body .topology-scroll{overflow:auto}
 .widget-move,.widget-remove,.widget-grip{color:#e0ebe2;background:#26342b;border:1px solid #425046;border-radius:6px;padding:4px 7px}
 .widget-move{cursor:grab;touch-action:none;line-height:1}
 .widget-remove{font-size:12px;margin-left:auto}
@@ -254,20 +227,11 @@ body{font-size:16px}
 .syslog-message{white-space:pre-wrap;overflow-wrap:anywhere}
 .syslog-rows .storage-table{font-size:14px}
 .syslog-rows .storage-table th:last-child{width:55%;min-width:240px}
-.map-navigation{display:flex;gap:6px;border-bottom:1px solid #363636;margin-bottom:16px}
-.map-navigation a{padding:9px 12px;color:#c0c5c2;text-decoration:none;border-bottom:2px solid transparent}
-.map-navigation [aria-current="page"]{color:#eee;border-color:#54c68a}
-.geo-page-map{height:clamp(340px,57vh,620px);padding:0;overflow:hidden;isolation:isolate}
 .geo-frame{height:100%;position:relative;isolation:isolate}
 .geo-canvas{height:100%;min-height:85px;background:#272c2d;z-index:0}
 .geo-map-status{position:absolute;z-index:1;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 90px);
   background:#332825;color:#ffd8ad;border:1px solid #70563b;border-radius:6px;padding:6px 9px;text-align:center;font-size:12px}
 .widget-geo{overflow:hidden}
-.geo-toolbar,.geo-locations{margin-top:16px}
-.geo-form .muted{font-size:13px;margin-bottom:0}
-#geo-results{display:flex;flex-wrap:wrap;gap:8px}
-#geo-results:not(:empty){margin-top:12px}
-.geo-locations h2{margin-bottom:8px}
 .geo-popup{min-width:145px}
 .geo-popup>div{padding:4px 0}
 .geo-popup a,.geo-popup small{display:block;margin-bottom:3px}
@@ -290,3 +254,17 @@ label.check-field input[type="checkbox"]{flex:none}
 #user-role-hint{font-size:13px;line-height:1.55}
 .overview-stats.stats-servers-only{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:500px){.overview-stats.stats-servers-only{grid-template-columns:minmax(0,1fr)}}
+
+.widget-geo .geo-frame{display:flex;flex-direction:column}
+.widget-geo .geo-canvas{flex:1}
+.widget-geo-tools{flex:none;position:relative;z-index:2;padding-bottom:6px}
+.widget-geo-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.widget-geo-bar select{width:auto;max-width: min(100%,220px);min-width:90px}
+.widget-geo-bar select,.widget-geo-form input{margin:0;padding:7px;font-size:13px}
+.geo-advanced{position:static;margin-left:auto}
+.geo-advanced summary{cursor:pointer;color:#b7dccc;font-size:13px}
+.widget-geo-form{position:absolute;top:100%;left:0;right:0;display:flex;gap:8px;flex-wrap:wrap;
+  max-height:min(40vh,250px);overflow:auto;background:#202723;border:1px solid #43564c;padding:10px;border-radius:6px}
+.widget-geo-form input{width:135px;max-width:100%}
+.geo-picking,.geo-picking .leaflet-grab{cursor:crosshair}
+.widget-geo-tools .form-msg{margin:5px 0;font-size:12px}
