@@ -88,12 +88,12 @@ Windows-агент также доступен в MSI и Setup EXE в GitHub Rel
 
 Установщик выбирает хосты по семейству обнаруженного контроллера. Для Dell PERC указывайте PercCLI/PercCLI2, а для Broadcom MegaRAID — StorCLI/StorCLI2, совместимый с моделью. Хост с уже установленным файлом с тем же хешем пропустит загрузку. Установка агента продолжается, если RAID CLI получить не удалось. На GPO Startup Script дайте право чтения шары компьютерам, от имени которых запускается скрипт.
 
-Если агент уже обновлён, ту же установку можно запустить из GPO, Ansible или вручную без переустановки агента:
+Если агент уже обновлён, ту же установку можно запустить из GPO, Ansible или вручную. Команда Windows берёт исполняемый файл из установленной задачи, поэтому подходит и для legacy-сборки на Windows Server 2012/R2. Для обновления агента на этих ОС используйте MSI/EXE из релиза.
 
 ```powershell
 $source = '\\fileserver\RAID\windows\storcli64.exe'
 $sha256 = '<SHA-256 утверждённого файла>'
-$agent = Join-Path $env:ProgramFiles 'Storavix Agent\storavix-agent.exe'
+$agent = (Get-ScheduledTask -TaskName StoravixAgent).Actions[0].Execute
 & $agent --install-raid-tool storcli --raid-tool-source $source --raid-tool-sha256 $sha256 --raid-tool-if-detected
 ```
 
