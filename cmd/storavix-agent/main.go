@@ -60,7 +60,23 @@ func main() {
 	once := flag.Bool("once", false, "send a single report")
 	allowHTTP := flag.Bool("allow-http", false, "INSECURE: allow unencrypted transport on a trusted network only")
 	logFile := flag.String("log-file", "", "agent diagnostics file; default data-dir/agent.log")
+	raidTool := flag.String("install-raid-tool", "", "stage a verified portable RAID CLI (storcli, storcli2, perccli, perccli2, ssacli)")
+	raidSource := flag.String("raid-tool-source", "", "absolute path or HTTPS URL of the RAID executable")
+	raidChecksum := flag.String("raid-tool-sha256", "", "SHA-256 of the RAID executable")
+	raidIfDetected := flag.Bool("raid-tool-if-detected", false, "stage only if compatible RAID hardware is detected")
 	flag.Parse()
+	if *raidTool != "" || *raidSource != "" || *raidChecksum != "" || *raidIfDetected {
+		path, err := collector.InstallRAIDTool(*raidTool, *raidSource, *raidChecksum, *raidIfDetected)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if path == "" {
+			log.Print("RAID CLI skipped: no matching RAID controller")
+		} else {
+			log.Printf("RAID CLI available at %s", path)
+		}
+		return
+	}
 	if runHardwareInventory() {
 		return
 	}

@@ -62,16 +62,16 @@ func readHardwareInventory() (Inventory, string) {
 }
 
 func collectHardware() Inventory {
-	results := make(chan Inventory, 2)
-	go func() {
-		results <- collectMegaOnLinux()
-	}()
-	go func() {
-		results <- collectHPEOnLinux()
-	}()
+	megaCh, hpeCh := make(chan Inventory, 1), make(chan Inventory, 1)
+	go func() { megaCh <- collectMegaOnLinux() }()
+	go func() { hpeCh <- collectHPEOnLinux() }()
+	mega, hpe := <-megaCh, <-hpeCh
 	var i Inventory
-	i.merge(<-results)
-	i.merge(<-results)
+	i.merge(mega)
+	i.merge(hpe)
+	if len(mega.Controllers) == 0 || len(hpe.Controllers) == 0 {
+		i.merge(nativeRAIDInventory(linuxRAIDDevices(), mega, hpe))
+	}
 	i.CollectedAt = time.Now().UTC()
 	return i.bounded()
 }
@@ -87,6 +87,7 @@ func collectMegaOnLinux() Inventory {
 			candidates = append(candidates, filepath.Join(dir, name))
 		}
 	}
+	candidates = append(managedRAIDTools(megaToolNames), candidates...)
 	if path := os.Getenv("STORAVIX_MEGA_CLI"); filepath.IsAbs(path) {
 		candidates = append([]string{path}, candidates...)
 	}
@@ -99,6 +100,7 @@ func collectHPEOnLinux() Inventory {
 		"/opt/hp/hpssacli/bld/hpssacli",
 		"/usr/sbin/ssacli", "/usr/bin/ssacli", "/usr/sbin/hpssacli", "/usr/bin/hpssacli",
 	}
+	candidates = append(managedRAIDTools(hpeToolNames), candidates...)
 	if path := os.Getenv("STORAVIX_HPE_CLI"); filepath.IsAbs(path) {
 		candidates = append([]string{path}, candidates...)
 	}

@@ -14,12 +14,16 @@ func storageProbes() map[string]probe {
 	return map[string]probe{
 		"windows-spaces": readStorageSpaces,
 		"windows-raid-hardware": func() (Inventory, string) {
-			results := make(chan Inventory, 2)
-			go func() { results <- collectMegaTools(windowsMegaTools()) }()
-			go func() { results <- collectHPETools(windowsHPETools()) }()
+			megaCh, hpeCh := make(chan Inventory, 1), make(chan Inventory, 1)
+			go func() { megaCh <- collectMegaTools(windowsMegaTools()) }()
+			go func() { hpeCh <- collectHPETools(windowsHPETools()) }()
+			mega, hpe := <-megaCh, <-hpeCh
 			var i Inventory
-			i.merge(<-results)
-			i.merge(<-results)
+			i.merge(mega)
+			i.merge(hpe)
+			if len(mega.Controllers) == 0 || len(hpe.Controllers) == 0 {
+				i.merge(nativeRAIDInventory(windowsRAIDDevices(), mega, hpe))
+			}
 			return i, ""
 		},
 	}
@@ -30,6 +34,7 @@ func windowsMegaTools() []string {
 	if configured := windowsToolSetting("STORAVIX_MEGA_CLI"); filepath.IsAbs(configured) {
 		paths = append(paths, configured)
 	}
+	paths = append(paths, managedRAIDTools(megaToolNames)...)
 	names := []string{"storcli2.exe", "storcli2_64.exe", "perccli2.exe", "perccli64.exe", "storcli64.exe", "perccli.exe", "storcli.exe"}
 	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("ProgramFiles(x86)")} {
 		if root == "" {
@@ -49,6 +54,7 @@ func windowsHPETools() []string {
 	if configured := windowsToolSetting("STORAVIX_HPE_CLI"); filepath.IsAbs(configured) {
 		paths = append(paths, configured)
 	}
+	paths = append(paths, managedRAIDTools(hpeToolNames)...)
 	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("ProgramFiles(x86)")} {
 		if root == "" {
 			continue

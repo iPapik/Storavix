@@ -14,6 +14,12 @@ elif command -v go >/dev/null;then echo '[1/6] Компиляция агента
 elif [[ -f "$ROOT/storavix-agent" ]];then SRC="$ROOT/storavix-agent"
 else echo 'Нет агента: нужен готовый бинарник или Go 1.23+' >&2;exit 1;fi
 [[ -s "$SRC" ]] || { echo 'Бинарник агента пустой.' >&2;exit 1; }
+if [[ -n "${STORAVIX_RAID_TOOL:-}${STORAVIX_RAID_TOOL_SOURCE:-}${STORAVIX_RAID_TOOL_SHA256:-}" ]]; then
+  if ! "$SRC" --install-raid-tool "${STORAVIX_RAID_TOOL:-}" \
+      --raid-tool-source "${STORAVIX_RAID_TOOL_SOURCE:-}" --raid-tool-sha256 "${STORAVIX_RAID_TOOL_SHA256:-}" --raid-tool-if-detected; then
+    echo '[Storavix Agent] Не удалось установить RAID CLI. Установка агента продолжается.' >&2
+  fi
+fi
 echo '[2/6] Каталог состояния и служебная учётная запись...'
 if ! id storavix-agent &>/dev/null;then useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin storavix-agent;fi
 install -d -o storavix-agent -g storavix-agent -m 0700 "$DATA"

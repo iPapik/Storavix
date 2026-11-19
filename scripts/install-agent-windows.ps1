@@ -12,6 +12,12 @@ if($env:STORAVIX_AGENT_BINARY -and (Test-Path $env:STORAVIX_AGENT_BINARY)){$sour
 elseif(Get-Command go -ErrorAction SilentlyContinue){Write-Host '[1/6] Building agent...' -ForegroundColor Cyan;Push-Location $root;try{& go build -trimpath -o '.\storavix-agent.exe' '.\cmd\storavix-agent';if($LASTEXITCODE -ne 0){throw 'Go build failed'}}finally{Pop-Location};$source=Join-Path $root 'storavix-agent.exe'}
 elseif(Test-Path (Join-Path $root 'storavix-agent.exe')){$source=Join-Path $root 'storavix-agent.exe'}
 else{throw 'Agent binary not found (EXE or Go 1.23+ required).'}
+if ($env:STORAVIX_RAID_TOOL -or $env:STORAVIX_RAID_TOOL_SOURCE -or $env:STORAVIX_RAID_TOOL_SHA256) {
+    try {
+        & $source "--install-raid-tool=$env:STORAVIX_RAID_TOOL" "--raid-tool-source=$env:STORAVIX_RAID_TOOL_SOURCE" "--raid-tool-sha256=$env:STORAVIX_RAID_TOOL_SHA256" --raid-tool-if-detected
+        if ($LASTEXITCODE -ne 0) { throw 'Agent could not provision the RAID CLI.' }
+    } catch { Write-Warning "RAID CLI installation failed. Agent setup will continue. $_" }
+}
 Write-Host '[2/6] Preparing secured directories...' -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $dir,$data | Out-Null
 & icacls.exe $data /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null

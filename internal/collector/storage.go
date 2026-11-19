@@ -238,17 +238,23 @@ func collectMegaTools(paths []string) Inventory {
 		if !isTool(path) {
 			continue
 		}
-		source := cliSource(path)
-		if used[source] {
+		tool := path
+		if runtime.GOOS == "windows" {
+			tool = strings.ToLower(tool)
+		}
+		if used[tool] {
 			continue
 		}
-		used[source] = true
+		used[tool] = true
+		source := cliSource(path)
 		inventory, status := readMega(path)
 		if len(inventory.Controllers) > 0 {
 			inventory.Sources = []telemetry.Source{{Name: source, Status: status}}
 			return inventory
 		}
-		result.Sources = append(result.Sources, telemetry.Source{Name: source, Status: status})
+		if len(result.Sources) == 0 || result.Sources[0].Name != source {
+			result.Sources = append(result.Sources, telemetry.Source{Name: source, Status: status})
+		}
 		attempts++
 		if attempts >= 2 {
 			// Bound the wait on a host with several versions of the vendor tools.
@@ -262,14 +268,23 @@ func collectMegaTools(paths []string) Inventory {
 }
 
 func collectHPETools(paths []string) Inventory {
+	status := "unavailable"
+	attempts := 0
 	for _, path := range paths {
 		if isTool(path) {
-			inventory, status := readHPE(path)
-			inventory.Sources = []telemetry.Source{{Name: "ssacli", Status: status}}
-			return inventory
+			inventory, current := readHPE(path)
+			if len(inventory.Controllers) > 0 {
+				inventory.Sources = []telemetry.Source{{Name: "ssacli", Status: current}}
+				return inventory
+			}
+			status = current
+			attempts++
+			if attempts >= 2 {
+				break
+			}
 		}
 	}
-	return Inventory{Storage: telemetry.Storage{Sources: []telemetry.Source{{Name: "ssacli", Status: "unavailable"}}}}
+	return Inventory{Storage: telemetry.Storage{Sources: []telemetry.Source{{Name: "ssacli", Status: status}}}}
 }
 
 func isTool(path string) bool {

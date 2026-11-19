@@ -352,6 +352,7 @@ $('server-refresh').addEventListener('click', () => loadServer(currentRoute.id))
 
 function fmtArrayCount(report) {
   if (report.arrays?.length) return String(report.arrays.length);
+  if (report.storage?.sources?.some(source => source.name === 'raid-os')) return '—';
   return report.storage?.sources?.some(source => source.status === 'ok') ? '0' : '—';
 }
 
@@ -362,7 +363,7 @@ const storageStates = {
 };
 const storageSources = {
   'linux-md': 'Linux MD', 'windows-spaces': 'Storage Spaces',
-  'linux-raid-hardware': 'Аппаратный RAID Linux', 'storcli-perccli': 'StorCLI / PercCLI',
+  'linux-raid-hardware': 'Аппаратный RAID Linux', 'raid-os': 'Контроллеры по данным ОС', 'storcli-perccli': 'StorCLI / PercCLI',
   storcli: 'StorCLI', storcli2: 'StorCLI2', perccli: 'PercCLI', perccli2: 'PercCLI2',
   ssacli: 'HPE SSA CLI', 'inventory-limit': 'Лимит инвентаризации'
 };
@@ -513,6 +514,7 @@ function storageInventory(report, open = new Set()) {
     const identity = [storageSources[c.source] || c.source, c.serial && ('S/N ' + c.serial),
       c.firmware && ('FW ' + c.firmware), c.detail].filter(Boolean);
     if (identity.length) block.append(makeText('p', identity.join(' · '), 'muted'));
+    if (c.source === 'raid-os') block.append(makeText('p', 'Для состояния массивов и списка физических дисков нужна утилита производителя.', 'muted'));
     const list = arrays.filter(a => a.controller === c.id);
     for (const a of list) block.append(arrayInfo(a, drives, open));
     const attached = (inventory.drives || []).filter(drive => drive.controller === c.id);
