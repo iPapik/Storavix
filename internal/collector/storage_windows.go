@@ -73,7 +73,14 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
 $id = { param($d) if ($d.UniqueId) { return [string]$d.UniqueId }; return [string]$d.ObjectId }
 $partial = $false
-$poolData = @(foreach ($p in Get-StoragePool -IsPrimordial $false) {
+if (-not (Get-Command Get-StoragePool -ErrorAction SilentlyContinue)) {
+    @{ unavailable = $true } | ConvertTo-Json -Compress
+    return
+}
+# Filtering in PowerShell permits hosts with no concrete pools. The cmdlet's
+# CIM filter can raise ObjectNotFound when only the primordial pool exists.
+$pools = @(Get-StoragePool | Where-Object { -not $_.IsPrimordial })
+$poolData = @(foreach ($p in $pools) {
     $drives = @(try {
         foreach ($d in Get-PhysicalDisk -StoragePool $p) {
             @{

@@ -23,17 +23,37 @@ New-Item -ItemType Directory -Force -Path $dir,$data | Out-Null
 & icacls.exe $data /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Failed to set token file ACL'}
 $serverFile=Join-Path $data 'server.txt';$tokenFile=Join-Path $data 'token'
-if((Test-Path $serverFile) -and (Test-Path $tokenFile)){Write-Host '[3/6] Existing server URL and token retained.' -ForegroundColor Cyan;$url=(Get-Content $serverFile -Raw).Trim()}
-else{
- Write-Host '[3/6] First-time configuration: server URL and token...' -ForegroundColor Cyan
- $url=(Read-Host 'Storavix server URL (https://host or http://IP:8080)').Trim()
- if($url -notmatch '^https?://[A-Za-z0-9._:-]+$'){throw 'Invalid server URL'}
- $sec=Read-Host 'Agent token (from storavix agent-token)' -AsSecureString
- $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
- try{$token=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr);if($token -notmatch '^[0-9a-f]{64}$'){throw 'Invalid token'};Set-Content -Path $tokenFile -Value $token -NoNewline -Encoding ascii}
- finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr);Remove-Variable token -ErrorAction SilentlyContinue}
- Set-Content -Path $serverFile -Value $url -NoNewline -Encoding ascii
+$url = ''
+if (Test-Path -LiteralPath $serverFile -PathType Leaf) {
+    $url = [IO.File]::ReadAllText($serverFile).Trim()
 }
+if (-not $url) {
+    $url = (Read-Host 'Storavix server URL (https://host or http://IP:8080)').Trim()
+}
+$uri = $null
+if (-not [uri]::TryCreate($url, [System.UriKind]::Absolute, [ref]$uri) -or
+    $uri.Scheme -notin @('http','https') -or -not $uri.Host -or
+    $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/') { throw 'Invalid server URL' }
+$origin = $uri.GetLeftPart([System.UriPartial]::Authority)
+if ((Test-Path -LiteralPath $tokenFile -PathType Leaf) -and
+    ([IO.File]::ReadAllText($tokenFile).Trim() -match '^[0-9a-fA-F]{64}$')) {
+    Write-Host '[3/6] Using saved registration token.' -ForegroundColor Cyan
+} else {
+    $sec = Read-Host 'Agent token (from storavix agent-token)' -AsSecureString
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+    try {
+        $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+        if ($token -notmatch '^[0-9a-fA-F]{64}$') { throw 'Invalid token' }
+        [IO.File]::WriteAllText($tokenFile, $token, [Text.Encoding]::ASCII)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+        Remove-Variable token -ErrorAction SilentlyContinue
+    }
+}
+if (-not (Test-Path -LiteralPath $serverFile -PathType Leaf) -or $origin -ne $url) {
+    [IO.File]::WriteAllText($serverFile, $origin, [Text.Encoding]::ASCII)
+}
+$url = $origin
 Write-Host '[4/6] Registering SYSTEM scheduled task...' -ForegroundColor Cyan
 Stop-ScheduledTask -TaskName StoravixAgent -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2

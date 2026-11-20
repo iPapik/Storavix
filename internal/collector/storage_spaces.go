@@ -28,10 +28,17 @@ type spacesPool struct {
 
 func parseStorageSpaces(b []byte) (Inventory, string) {
 	var data struct {
-		Pools   []spacesPool
-		Partial bool
+		Pools       []spacesPool
+		Partial     bool
+		Unavailable bool
 	}
-	if json.Unmarshal(b, &data) != nil || data.Pools == nil {
+	if json.Unmarshal(b, &data) != nil {
+		return Inventory{}, "error"
+	}
+	if data.Unavailable {
+		return Inventory{}, "unavailable"
+	}
+	if data.Pools == nil {
 		return Inventory{}, "error"
 	}
 	var out Inventory

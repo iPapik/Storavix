@@ -147,3 +147,17 @@ func TestStorageSpacesUsesVirtualDiskAssociation(t *testing.T) {
 		t.Fatalf("incorrect Windows disk association: %+v", i)
 	}
 }
+
+func TestStorageSpacesDistinguishesEmptyAndUnavailable(t *testing.T) {
+	for _, tc := range []struct{ data, want string }{
+		{`{"pools":[],"partial":false}`, "ok"},
+		{`{"unavailable":true}`, "unavailable"},
+		{`{"pools":null}`, "error"},
+		{`{}`, "error"},
+	} {
+		i, status := parseStorageSpaces([]byte(tc.data))
+		if status != tc.want || len(i.Controllers) != 0 || len(i.Arrays) != 0 || len(i.Drives) != 0 {
+			t.Errorf("%s: got %+v, %s; want empty inventory, %s", tc.data, i, status, tc.want)
+		}
+	}
+}

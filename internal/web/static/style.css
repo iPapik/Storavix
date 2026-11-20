@@ -145,6 +145,8 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .system-head b{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .systems-actions .systems-layout-select{width:auto;min-width:0}
 .systems-actions .secondary{white-space:nowrap}
+#systems-refresh{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+#systems-refresh .ui-icon{display:block;margin:0}
 .page-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .page-toolbar h2,.panel h2{font-size:18px;margin:0}
 .toolbar-actions,.widget-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

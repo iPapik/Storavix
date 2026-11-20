@@ -1,13 +1,15 @@
-# Storavix Agent offline configuration and diagnostics. Compatible with Windows PowerShell 5.1.
+# Storavix Agent offline configuration. Compatible with Windows PowerShell 4.0 and later.
 [CmdletBinding()]
 param(
   [switch]$Console,
   [string]$ServerUrl,
-  [string]$RegistrationTokenFile
+  [string]$RegistrationTokenFile,
+  [switch]$ConfigureOnInstall,
+  [switch]$ReuseSavedConfiguration
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$usingGui = (-not $Console -and [string]::IsNullOrEmpty($ServerUrl) -and [string]::IsNullOrEmpty($RegistrationTokenFile))
+$usingGui = (-not $ReuseSavedConfiguration -and -not $Console -and [string]::IsNullOrEmpty($ServerUrl) -and [string]::IsNullOrEmpty($RegistrationTokenFile))
 
 function Show-StoravixDialog([string]$message,[bool]$isError) {
   Add-Type -AssemblyName System.Windows.Forms
@@ -23,11 +25,21 @@ function Write-SetupLog([string]$message) {
   }
 }
 
+function Get-ServerOrigin([string]$value) {
+  $parsed = $null
+  if ([uri]::TryCreate($value,[System.UriKind]::Absolute,[ref]$parsed) -and
+      $parsed.Scheme -in @('http','https') -and $parsed.Host -and -not $parsed.UserInfo -and
+      -not $parsed.Query -and -not $parsed.Fragment -and $parsed.AbsolutePath -eq '/') {
+    return $parsed
+  }
+}
+
 try {
   $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   if (-not $admin) {
     if (-not $usingGui) { throw 'Start an elevated PowerShell (Run as Administrator).' }
     $argumentList = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+    if ($ConfigureOnInstall) { $argumentList += ' -ConfigureOnInstall' }
     $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argumentList -Verb RunAs -Wait -PassThru
     if ($proc.ExitCode -ne 0) { throw ('Elevated configuration failed. Exit code ' + $proc.ExitCode + '. See C:\ProgramData\StoravixAgent\setup.log.') }
     exit 0
@@ -53,12 +65,23 @@ try {
   $serverPath = Join-Path $dataDir 'server.txt'
   $tokenPath = Join-Path $dataDir 'token'
   $agentLogPath = Join-Path $dataDir 'agent.log'
-  $url = ''
-  if (Test-Path -LiteralPath $serverPath) { $url = (Get-Content -LiteralPath $serverPath -Raw).Trim() }
-  $hasToken = Test-Path -LiteralPath $tokenPath
+  $savedUrl = ''
+  if (Test-Path -LiteralPath $serverPath -PathType Leaf) {
+    $savedUrl = [IO.File]::ReadAllText($serverPath).Trim()
+  }
+  $hasToken = (Test-Path -LiteralPath $tokenPath -PathType Leaf) -and
+    ([IO.File]::ReadAllText($tokenPath).Trim() -match '^[a-fA-F0-9]{64}$')
+  $url = $savedUrl
   $token = ''
-
-  if ($usingGui) {
+  $reuseSaved = ($ConfigureOnInstall -or $ReuseSavedConfiguration) -and $hasToken -and
+    ($null -ne (Get-ServerOrigin $savedUrl))
+  if ($reuseSaved) {
+    $usingGui = $false
+    Write-SetupLog 'Using saved server URL and registration token.'
+  } elseif ($ReuseSavedConfiguration) {
+    Write-SetupLog 'No complete saved configuration. Configure the agent to start monitoring.'
+    exit 0
+  } elseif ($usingGui) {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -111,23 +134,25 @@ try {
     $url=$urlBox.Text.Trim()
     $token=$tokenBox.Text.Trim()
     $form.Dispose()
-  } elseif (-not [string]::IsNullOrEmpty($ServerUrl)) {
-    $url=$ServerUrl.Trim()
-    if (-not [string]::IsNullOrEmpty($RegistrationTokenFile)) {
+  } elseif ($ServerUrl -or $RegistrationTokenFile) {
+    if ($ServerUrl) { $url = $ServerUrl.Trim() }
+    if ($RegistrationTokenFile) {
       if (-not (Test-Path -LiteralPath $RegistrationTokenFile -PathType Leaf)) { throw 'Registration token file not found.' }
-      $token=(Get-Content -LiteralPath $RegistrationTokenFile -Raw).Trim()
+      $token = [IO.File]::ReadAllText($RegistrationTokenFile).Trim()
     }
   } else {
-    $answer=Read-Host ('Central Storavix URL [' + $url + ']')
-    if ($answer.Trim()) { $url=$answer.Trim() }
-    $secure=Read-Host 'Agent token (leave blank to keep previous)' -AsSecureString
-    $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try { $token=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    $answer = Read-Host ('Central Storavix URL [' + $url + ']')
+    if ($answer.Trim()) { $url = $answer.Trim() }
+    if (-not $hasToken) {
+      $secure = Read-Host 'Agent token' -AsSecureString
+      $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+      try { $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+      finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    }
   }
 
-  $parsed=$null
-  if (-not [uri]::TryCreate($url,[System.UriKind]::Absolute,[ref]$parsed) -or $parsed.Scheme -notin @('http','https') -or $parsed.UserInfo -or $parsed.Query -or $parsed.Fragment -or $parsed.AbsolutePath -ne '/') {
+  $parsed = Get-ServerOrigin $url
+  if ($null -eq $parsed) {
     throw 'Invalid URL: enter http(s)://hostname[:port] without an extra path, query or credentials.'
   }
   # System.Uri.AbsolutePath is "/" for both an origin and origin + trailing slash.
@@ -146,11 +171,17 @@ try {
   if ($parsed.Scheme -eq 'http') { Write-SetupLog 'HTTP warning acknowledged; continuing setup.' }
   if ($token) {
     $tmpToken=Join-Path $dataDir ('token.new.'+[guid]::NewGuid().ToString('N'))
-    Set-Content -LiteralPath $tmpToken -Value $token -Encoding Ascii -NoNewline
-    Move-Item -LiteralPath $tmpToken -Destination $tokenPath -Force
-    $token='' # Do not retain secret in memory longer than necessary.
+    try {
+      [IO.File]::WriteAllText($tmpToken, $token, [Text.Encoding]::ASCII)
+      Move-Item -LiteralPath $tmpToken -Destination $tokenPath -Force
+    } finally {
+      Remove-Item -LiteralPath $tmpToken -ErrorAction SilentlyContinue
+      $token = ''
+    }
   }
-  Set-Content -LiteralPath $serverPath -Value $url -Encoding Ascii -NoNewline
+  if (-not $reuseSaved -or $url -ne $savedUrl) {
+    [IO.File]::WriteAllText($serverPath, $url, [Text.Encoding]::ASCII)
+  }
   # Files created by older installers may retain restrictive ACLs that block LocalSystem.
   # Apply explicit SYSTEM + Administrators permissions to configuration files.
   foreach ($configPath in @($tokenPath, $serverPath)) {

@@ -20,7 +20,7 @@ services:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 
 package:'<path d="m12 2 9 5v10l-9 5-9-5V7l9-5ZM3 7l9 5 9-5M12 12v10"/>',
 clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',
 radio:'<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 0 0 0 10M17 7a7 7 0 0 1 0 10M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16"/>',
-refresh:'<path d="M20 7v5h-5M4 17v-5h5M5 10a8 8 0 0 1 14-3l1 5M19 14a8 8 0 0 1-14 3l-1-5"/>',
+refresh:'<path d="M21 3v5h-5M3 21v-5h5M3 12a9 9 0 0 1 15.7-6.3L21 8M21 12a9 9 0 0 1-15.7 6.3L3 16"/>',
 menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
 trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>',
 info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7h.01"/>'
@@ -29,7 +29,7 @@ function makeIcon(name){const svg=document.createElementNS('http://www.w3.org/20
 document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','logs','bell','settings'][i]||'info')));
 document.querySelectorAll('.empty-icon').forEach((el,i)=>el.replaceChildren(makeIcon(i===0?'drives':'logs')));
 $('menu-toggle').replaceChildren(makeIcon('menu'));
-$('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode(' Обновить'));
+$('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode('Обновить'));
 
 let session = false;
 let sessionEpoch = 0;
@@ -370,11 +370,6 @@ const storageSources = {
 const storageSourceStates = {
   ok: 'опрошен', partial: 'частичные данные', error: 'ошибка опроса', unavailable: 'недоступен'
 };
-const driveRoles = {
-  member: 'Участник', spare: 'Резервный', 'global-spare': 'Общий резервный',
-  jbod: 'JBOD', unassigned: 'Свободный', pool: 'Диск пула', journal: 'Журнал', retired: 'Выведен'
-};
-
 function makeText(tag, value, className) {
   const node = document.createElement(tag);
   node.textContent = value;
@@ -438,7 +433,7 @@ function dataTable(columns, rows) {
 
 function driveTable(drives) {
   return dataTable(
-    ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Роль', 'Состояние'],
+    ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Состояние'],
     drives.map(d => {
       const health = document.createElement('div');
       health.append(healthTag(d.status));
@@ -449,8 +444,7 @@ function driveTable(drives) {
       model.append(makeText('span', d.model || '—'));
       if (d.firmware) model.append(makeText('small', 'FW ' + d.firmware, 'storage-cell-note'));
       return [[d.slot, d.device].filter(Boolean).join(' · ') || '—', model, d.serial || '—',
-        [d.interface, d.media].filter(Boolean).join(' / ') || '—', d.sizeBytes ? fmtBytes(d.sizeBytes) : '—',
-        driveRoles[d.role] || d.role || '—', health];
+        [d.interface, d.media].filter(Boolean).join(' / ') || '—', d.sizeBytes ? fmtBytes(d.sizeBytes) : '—', health];
     })
   );
 }
@@ -493,7 +487,9 @@ function storageInventory(report, open = new Set()) {
     sources.append(makeText('strong', 'Опрос хранилища ' + collected.toLocaleString('ru-RU')));
     for (const source of inventory.sources || []) {
       const name = storageSources[source.name] || source.name;
-      sources.append(makeText('span', name + ' · ' + storageSourceStates[source.status],
+      const noPools = source.name === 'windows-spaces' && source.status === 'ok' &&
+        !inventory.controllers?.some(controller => controller.source === 'windows-spaces');
+      sources.append(makeText('span', name + ' · ' + (noPools ? 'пулы не настроены' : storageSourceStates[source.status]),
         'tag ' + (source.status === 'error' || source.status === 'partial' ? 'storage-warning' : 'grey')));
     }
     host.append(sources);

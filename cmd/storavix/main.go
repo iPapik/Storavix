@@ -35,7 +35,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.15"
+const version = "0.2.16"
 
 type MailConfig struct {
 	Host       string `json:"host"`
