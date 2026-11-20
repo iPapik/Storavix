@@ -31,11 +31,17 @@ func storageProbes() map[string]probe {
 
 func windowsMegaTools() []string {
 	var paths []string
-	if configured := windowsToolSetting("STORAVIX_MEGA_CLI"); filepath.IsAbs(configured) {
+	if configured := windowsToolSetting("STORAVIX_MEGA_CLI"); filepath.IsAbs(configured) && !strings.HasSuffix(strings.ToLower(configured), "_zpe.exe") {
 		paths = append(paths, configured)
 	}
 	paths = append(paths, managedRAIDTools(megaToolNames)...)
 	names := []string{"storcli2.exe", "storcli2_64.exe", "perccli2.exe", "perccli64.exe", "storcli64.exe", "perccli.exe", "storcli.exe"}
+	if root := os.Getenv("SystemRoot"); filepath.IsAbs(root) {
+		for _, name := range names {
+			paths = append(paths, filepath.Join(root, "System32", name))
+		}
+	}
+
 	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), os.Getenv("ProgramFiles(x86)")} {
 		if root == "" {
 			continue

@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/iPapik/Storavix/internal/telemetry"
@@ -159,5 +160,21 @@ func TestStorageSpacesDistinguishesEmptyAndUnavailable(t *testing.T) {
 		if status != tc.want || len(i.Controllers) != 0 || len(i.Arrays) != 0 || len(i.Drives) != 0 {
 			t.Errorf("%s: got %+v, %s; want empty inventory, %s", tc.data, i, status, tc.want)
 		}
+	}
+}
+
+func TestLegacyPercCLIQueriesControllersSeparately(t *testing.T) {
+	fixtures := map[string]string{
+		"show J":                   `{"Controllers":[{"Command Status":{"Status":"Success"},"Response Data":{"System Overview":[{"Ctl":1}]}}]}`,
+		"/c1 show all J":           `{"Controllers":[{"Command Status":{"Controller":1,"Status":"Success"},"Response Data":{"Basics":{"Model":"PERC H710P Mini"},"Status":{"Controller Status":"Optimal"},"VD LIST":[{"DG/VD":"0/0","TYPE":"RAID1","State":"Optl","Name":"Test"}],"PD LIST":[{"EID:Slt":"252:10","State":"Onln","DG":0}]}}]}`,
+		"/c1/eall/sall show all J": `{"Controllers":[{"Command Status":{"Controller":1,"Status":"Success"},"Response Data":{"Drive /c1/e252/s10 - Detailed Information":{"Drive /c1/e252/s10 Device attributes":{"SN":"LEGACY"},"Drive /c1/e252/s10 State":{"Media Error Count":2}}}}]}`,
+	}
+	inventory, status := readMegaWithRunner("perccli", func(args ...string) []byte {
+		return []byte(fixtures[strings.Join(args, " ")])
+	})
+	if status != "ok" || len(inventory.Controllers) != 1 || inventory.Controllers[0].Model != "PERC H710P Mini" ||
+		len(inventory.Arrays) != 1 || len(inventory.Drives) != 1 || inventory.Drives[0].Status != "degraded" ||
+		inventory.Drives[0].Serial != "LEGACY" {
+		t.Fatalf("could not read legacy PERCcli: %s %+v", status, inventory)
 	}
 }

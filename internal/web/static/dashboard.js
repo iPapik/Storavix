@@ -9,7 +9,7 @@ const widgetTypes = {
   servers: ['Состояние серверов', 'servers', 'servers']
 };
 const deviceStates = {
-  up: ['Доступен', 'green'], down: ['Нет связи', 'storage-failed'],
+  up: ['Доступен', 'green'], critical: ['Критическое', 'storage-failed'], down: ['Нет связи', 'storage-failed'],
   warning: ['Требуется внимание', 'storage-warning'], stale: ['Данные устарели', 'grey'],
   pending: ['Ожидание опроса', 'grey'], disabled: ['Отключён', 'grey'], unknown: ['Неизвестно', 'grey']
 };
@@ -216,7 +216,7 @@ function renderWidget(panel, widget) {
         const info = document.createElement('div');
         info.append(routeLink(array.host, 'server', array.hostId),
           makeText('small', [array.name, array.level].filter(Boolean).join(' · '), 'muted'));
-        row.append(info, healthTag(array.status));
+        row.append(info, array.memberIssue ? storageSummaryTag('active', array.status, 'диск') : healthTag(array.status));
         return row;
       }, 'Ожидание данных о массивах.');
       break;

@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"archive/zip"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -75,5 +76,51 @@ func TestRAIDToolStagingIsAtomicAndChecksFormat(t *testing.T) {
 	temps, err := filepath.Glob(filepath.Join(dir, ".raid-download-*"))
 	if err != nil || len(temps) != 0 {
 		t.Fatalf("left partial downloads: %v, error %v", temps, err)
+	}
+}
+
+func TestExtractDellZPESelectsOnlyAMD64Payload(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "PERCcli_ZPE.exe")
+	f, err := os.Create(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("MZ-prefixed wrapper"); err != nil {
+		t.Fatal(err)
+	}
+	zipWriter := zip.NewWriter(f)
+	zipWriter.SetOffset(int64(len("MZ-prefixed wrapper")))
+	for _, entry := range []struct{ name, data string }{
+		{"Windows/perccli.exe", "32-bit"},
+		{"Windows/perccli64.exe", "64-bit"},
+		{"../do-not-write.txt", "extra"},
+	} {
+		z, err := zipWriter.Create(entry.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := z.Write([]byte(entry.data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GODEBUG", "zipinsecurepath=1")
+	extracted, err := extractPercCLI64(source, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(extracted)
+	if err != nil || string(data) != "64-bit" || filepath.Dir(extracted) != dir {
+		t.Fatalf("wrong payload: %q %q / %v", extracted, data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("unexpected files extracted: %v / %v", entries, err)
 	}
 }

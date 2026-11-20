@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"debug/elf"
@@ -75,7 +76,7 @@ func InstallRAIDTool(name, source, checksum string, onlyMatchingHardware bool) (
 		return "", err
 	}
 	if !validToolSHA256(checksum) {
-		return "", errors.New("expected the SHA-256 of the portable RAID executable")
+		return "", errors.New("expected the SHA-256 of the RAID executable or Dell PERCcli package")
 	}
 	if source == "" {
 		return "", errors.New("RAID executable source is required")
@@ -137,19 +138,78 @@ func stageRAIDTool(path, source, checksum string, verifyFormat func(string) erro
 		return err
 	}
 	defer os.Remove(temp.Name())
-	if err = verifyRAIDToolChecksum(io.TeeReader(src, temp), checksum); err == nil {
-		err = temp.Chmod(0755)
-	}
+	err = verifyRAIDToolChecksum(io.TeeReader(src, temp), checksum)
 	if closeErr := temp.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
 		return err
 	}
-	if err := verifyFormat(temp.Name()); err != nil {
+	ready := temp.Name()
+	if runtime.GOOS == "windows" && filepath.Base(path) == "perccli.exe" {
+		extracted, err := extractPercCLI64(ready, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		if extracted != "" {
+			defer os.Remove(extracted)
+			ready = extracted
+		}
+	}
+	if err := verifyFormat(ready); err != nil {
 		return err
 	}
-	return os.Rename(temp.Name(), path)
+	if err := os.Chmod(ready, 0755); err != nil {
+		return err
+	}
+	return os.Rename(ready, path)
+}
+
+// Dell's Windows ZPE package is a PE stub followed by a ZIP archive. Take
+// only its known amd64 payload, without running the stub or using ZIP paths
+// as destinations. The supplied SHA-256 has already verified the entire file.
+func extractPercCLI64(packagePath, dir string) (string, error) {
+	pkg, err := zip.OpenReader(packagePath)
+	if errors.Is(err, zip.ErrFormat) {
+		return "", nil // Already a portable binary, checked by verifyNativeRAIDFormat.
+	}
+	if err != nil {
+		return "", err
+	}
+	defer pkg.Close()
+	var payload *zip.File
+	for _, item := range pkg.File {
+		name := strings.ToLower(strings.ReplaceAll(item.Name, `\`, "/"))
+		if name != "windows/perccli64.exe" && name != "perccli64.exe" {
+			continue
+		}
+		if payload != nil {
+			return "", errors.New("Dell PERCcli archive contains multiple perccli64.exe entries")
+		}
+		payload = item
+	}
+	if payload == nil || !payload.Mode().IsRegular() || payload.UncompressedSize64 == 0 ||
+		payload.UncompressedSize64 > maxRAIDToolBytes {
+		return "", errors.New("Dell PERCcli archive does not contain a valid Windows/perccli64.exe")
+	}
+	content, err := payload.Open()
+	if err != nil {
+		return "", err
+	}
+	defer content.Close()
+	out, err := os.CreateTemp(dir, ".perccli-extract-*")
+	if err != nil {
+		return "", err
+	}
+	written, err := io.Copy(out, io.LimitReader(content, maxRAIDToolBytes+1))
+	if closeErr := out.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil || uint64(written) != payload.UncompressedSize64 {
+		_ = os.Remove(out.Name())
+		return "", errors.New("could not extract the full Dell perccli64.exe")
+	}
+	return out.Name(), nil
 }
 
 func openRAIDTool(ctx context.Context, source string) (io.ReadCloser, error) {

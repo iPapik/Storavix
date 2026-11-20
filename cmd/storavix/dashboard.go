@@ -151,11 +151,12 @@ type DashboardHost struct {
 }
 
 type DashboardArray struct {
-	HostID string `json:"hostId"`
-	Host   string `json:"host"`
-	Name   string `json:"name"`
-	Level  string `json:"level"`
-	Status string `json:"status"`
+	HostID      string `json:"hostId"`
+	Host        string `json:"host"`
+	Name        string `json:"name"`
+	Level       string `json:"level"`
+	Status      string `json:"status"`
+	MemberIssue bool   `json:"memberIssue,omitempty"`
 }
 
 type DashboardProblem struct {
@@ -203,39 +204,60 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 			h.Status = "down"
 			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, "Агент не отвечает", "critical"})
 		}
-		for _, a := range r.Arrays {
-			status := a.Status
-			if offline {
-				status = "stale"
+		issue := "active"
+		addProblem := func(name, status string) {
+			rank := storageIssueRank(status)
+			if offline || rank == 0 {
+				return
 			}
-			data.Arrays = append(data.Arrays, DashboardArray{r.ID, r.Hostname, a.Name, a.Level, status})
-			if status == "inactive" || status == "degraded" || status == "rebuilding" {
-				severity := "warning"
-				if status == "inactive" {
-					severity = "critical"
-				}
-				data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, fmt.Sprintf("%s · %s", a.Name, alarmStorageLabel(status)), severity})
-				h.Status = "warning"
+			if rank > storageIssueRank(issue) {
+				issue = status
 			}
+			severity := "warning"
+			if status == "inactive" {
+				severity = "critical"
+			}
+			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, fmt.Sprintf("%s · %s", name, alarmStorageLabel(status)), severity})
 		}
+		drives := make(map[string]string)
 		if r.Storage != nil {
 			data.Drives += len(r.Storage.Drives)
 			for _, d := range r.Storage.Drives {
-				if offline || (d.Status != "degraded" && d.Status != "inactive") {
-					continue
-				}
+				drives[d.ID] = d.Status
 				name := strings.TrimSpace(d.Slot + " " + d.Device)
 				if name == "" {
 					name = d.Model
 				}
-				data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, fmt.Sprintf("Диск %s · %s", name, alarmStorageLabel(d.Status)), "warning"})
-				h.Status = "warning"
+				addProblem("Диск "+name, d.Status)
 			}
 			for _, c := range r.Storage.Controllers {
-				if !offline && (c.Status == "inactive" || c.Status == "degraded") {
-					data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, fmt.Sprintf("%s · %s", c.Model, alarmStorageLabel(c.Status)), "warning"})
-					h.Status = "warning"
+				addProblem(c.Model, c.Status)
+			}
+			for _, source := range r.Storage.Sources {
+				if storageIssueRank(issue) == 0 && (source.Status == "error" || source.Status == "partial") {
+					issue = "degraded"
 				}
+			}
+		}
+		for _, a := range r.Arrays {
+			status, memberIssue := a.Status, false
+			if offline {
+				status = "stale"
+			} else {
+				for _, id := range a.Members {
+					if s := drives[id]; storageIssueRank(s) > storageIssueRank(status) {
+						status, memberIssue = s, true
+					}
+				}
+			}
+			data.Arrays = append(data.Arrays, DashboardArray{r.ID, r.Hostname, a.Name, a.Level, status, memberIssue})
+			addProblem(a.Name, a.Status)
+		}
+		if !offline {
+			if issue == "inactive" {
+				h.Status = "critical"
+			} else if storageIssueRank(issue) != 0 {
+				h.Status = "warning"
 			}
 		}
 		data.Hosts = append(data.Hosts, h)
@@ -258,6 +280,19 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		return a.Severity+a.Source+a.Message < b.Severity+b.Source+b.Message
 	})
 	sendJSON(w, http.StatusOK, data)
+}
+
+func storageIssueRank(status string) int {
+	switch status {
+	case "inactive":
+		return 3
+	case "degraded":
+		return 2
+	case "rebuilding":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func alarmStorageLabel(status string) string {

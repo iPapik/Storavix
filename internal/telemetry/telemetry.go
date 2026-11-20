@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.2.16"
+const AgentVersion = "0.2.17"
 const MaxReports = 500
 const MaxReportBytes = 1024 * 1024
 
@@ -18,6 +18,7 @@ type Report struct {
 	ID                 string    `json:"id"`
 	Hostname           string    `json:"hostname"`
 	OS                 string    `json:"os"`
+	OSName             string    `json:"osName,omitempty"`
 	Version            string    `json:"version"`
 	CPUPercent         *float64  `json:"cpuPercent"`
 	MemoryPercent      *float64  `json:"memoryPercent"`
@@ -105,7 +106,7 @@ const (
 var validID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 func (r Report) Validate() error {
-	if !validID.MatchString(r.ID) || len(r.Hostname) < 1 || len(r.Hostname) > 128 || strings.ContainsAny(r.Hostname, "\r\n<>\x00") || len(r.OS) > 48 || len(r.Version) > 32 {
+	if !validID.MatchString(r.ID) || len(r.Hostname) < 1 || len(r.Hostname) > 128 || strings.ContainsAny(r.Hostname, "\r\n<>\x00") || len(r.OS) > 48 || !shortText(r.OSName) || len(r.Version) > 32 {
 		return errors.New("invalid agent identity")
 	}
 	for _, v := range []*float64{r.CPUPercent, r.MemoryPercent, r.DiskPercent} {

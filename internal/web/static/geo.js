@@ -55,7 +55,7 @@ function geoMap(id) {
     view.markers.clearLayers();
     for (const list of groups.values()) {
       const {lat, lon} = list[0].point;
-      const color = list.some(t => t.status === 'down') ? '#df737e' : list.some(t => t.status === 'warning') ? '#edb278' :
+      const color = list.some(t => t.status === 'down' || t.status === 'critical') ? '#df737e' : list.some(t => t.status === 'warning') ? '#edb278' :
         list.every(t => t.status === 'up') ? '#45c88a' : '#8da6b3';
       const popup = document.createElement('div');
       popup.className = 'geo-popup';

@@ -236,11 +236,49 @@ const fmtPercent=x=>typeof x==='number'?x.toLocaleString('ru-RU',{maximumFractio
 const fmtRate=x=>typeof x!=='number'?'—':x>=1048576?(x/1048576).toLocaleString('ru-RU',{maximumFractionDigits:2})+' MB/s':x>=1024?(x/1024).toLocaleString('ru-RU',{maximumFractionDigits:1})+' KB/s':x.toLocaleString('ru-RU',{maximumFractionDigits:0})+' B/s';
 const fmtUptime=x=>typeof x!=='number'?'—':x>=86400?Math.floor(x/86400)+' дн.':x>=3600?Math.floor(x/3600)+' ч.':Math.floor(x/60)+' мин.';
 function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
-function stateFor(r){return Date.now()-Date.parse(r.receivedAt)>120000?'offline':storageHasWarning(r)?'warn':'online'}
-function makeSystemCard(r){const status=stateFor(r);const card=document.createElement('a');card.className='system-card';card.href='#server/'+r.id;card.setAttribute('aria-label','Подробнее о сервере '+r.hostname);const head=document.createElement('div');head.className='system-head';const name=document.createElement('b');name.textContent=r.hostname;const dot=document.createElement('i');dot.className='system-dot '+status;head.append(dot,name);const state=document.createElement('span');state.className='system-state';state.textContent=status==='online'?'● Онлайн':status==='warn'?'RAID: внимание':'● Нет связи';head.append(state);card.append(head);
- const m=document.createElement('div');m.className='system-metrics';m.append(metricRow('cpu','ЦП:',fmtPercent(r.cpuPercent),r.cpuPercent),metricRow('memory','Память:',fmtPercent(r.memoryPercent),r.memoryPercent),metricRow('drive','Диск:',fmtPercent(r.diskPercent),r.diskPercent,90),metricRow('network','Сеть:',fmtRate(r.networkBytesPerSec)),metricRow('clock','Время работы:',fmtUptime(r.uptimeSeconds)),metricRow('drive','RAID:',fmtArrayCount(r)),metricRow('radio','Агент:',r.version||'—'));
- card.append(m);return card}
-function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||x.os.toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
+const systemStates = {
+  online: 'Онлайн', warn: 'RAID: внимание', critical: 'RAID: критическое', offline: 'Нет связи'
+};
+
+function osDisplay(report) {
+  return report.osName || ({windows: 'Windows', linux: 'Linux'}[report.os] || report.os || '—');
+}
+
+function stateFor(report) {
+  if (Date.now() - Date.parse(report.receivedAt) > 120000) return 'offline';
+  const storage = report.storage;
+  const health = mostSevereStorageStatus('active', [
+    ...(report.arrays || []), ...(storage?.drives || []), ...(storage?.controllers || [])
+  ]);
+  if (health === 'inactive') return 'critical';
+  if (storageIssueRank(health) || storage?.sources?.some(source => ['error', 'partial'].includes(source.status))) return 'warn';
+  return 'online';
+}
+
+function makeSystemCard(r) {
+  const status = stateFor(r);
+  const card = document.createElement('a');
+  card.className = 'system-card';
+  card.href = '#server/' + r.id;
+  card.setAttribute('aria-label', 'Подробнее о сервере ' + r.hostname);
+  const head = document.createElement('div');
+  head.className = 'system-head';
+  head.append(makeText('i', '', 'system-dot ' + status), makeText('b', r.hostname),
+    makeText('span', systemStates[status], 'system-state state-text ' + status));
+  const metrics = document.createElement('div');
+  metrics.className = 'system-metrics';
+  metrics.append(metricRow('cpu', 'ЦП:', fmtPercent(r.cpuPercent), r.cpuPercent),
+    metricRow('memory', 'Память:', fmtPercent(r.memoryPercent), r.memoryPercent),
+    metricRow('drive', 'Диск:', fmtPercent(r.diskPercent), r.diskPercent, 90),
+    metricRow('network', 'Сеть:', fmtRate(r.networkBytesPerSec)),
+    metricRow('clock', 'Время работы:', fmtUptime(r.uptimeSeconds)),
+    metricRow('drive', 'RAID:', fmtArrayCount(r)),
+    metricRow('servers', 'ОС:', osDisplay(r)),
+    metricRow('radio', 'Агент:', r.version || '—'));
+  card.append(head, metrics);
+  return card;
+}
+function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||osDisplay(x).toLowerCase().includes(f) || (x.os || '').toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
 let systemsPending = -1;
 async function loadSystems() {
   const epoch = sessionEpoch;
@@ -293,9 +331,9 @@ function renderServer(r) {
     tiles.append(tile);
   }
   metrics.append(tiles);
+  detailRow(metrics, 'Состояние', systemStates[state], 'state-text ' + state);
   for (const [key, value] of [
-    ['Состояние', state === 'offline' ? 'Нет связи' : state === 'warn' ? 'RAID: требуется внимание' : 'Онлайн'],
-    ['Операционная система', r.os], ['Последний отчёт', new Date(r.receivedAt).toLocaleString('ru-RU')],
+    ['Операционная система', osDisplay(r)], ['Последний отчёт', new Date(r.receivedAt).toLocaleString('ru-RU')],
     ['Оперативная память', r.memoryBytes ? fmtBytes(r.memoryBytes) : null],
     ['Доступно памяти', r.memoryAvailable != null ? fmtBytes(r.memoryAvailable) : null],
     ['Средняя нагрузка (1, 5, 15 мин.)', r.loadAverage?.length === 3 ? r.loadAverage.join(' / ') : null],
@@ -388,21 +426,29 @@ function fmtBytes(amount) {
   return amount.toLocaleString('ru-RU', {maximumFractionDigits: 2}) + ' ' + units[unit];
 }
 
-function healthTag(status) {
+function healthTag(status, caption) {
   const [label, color] = storageStates[status] || storageStates.unknown;
-  return makeText('span', label, 'tag ' + color);
+  return makeText('span', caption || label, 'tag ' + color);
 }
 
-function storageHasWarning(report) {
-  const states = [...(report.arrays || []), ...(report.storage?.drives || []), ...(report.storage?.controllers || [])];
-  return states.some(item => ['degraded', 'inactive', 'rebuilding'].includes(item.status))
-    || report.storage?.sources?.some(source => source.status === 'error' || source.status === 'partial');
+function storageIssueRank(status) {
+  return {inactive: 3, degraded: 2, rebuilding: 1}[status] || 0;
 }
 
-function detailRow(parent, label, value) {
+function mostSevereStorageStatus(initial, items) {
+  return items.reduce((status, item) => storageIssueRank(item.status) > storageIssueRank(status) ? item.status : status, initial);
+}
+
+function storageSummaryTag(native, effective, affected) {
+  const propagated = storageIssueRank(effective) > storageIssueRank(native);
+  const label = propagated ? (effective === 'inactive' ? 'Критическое' : 'Внимание') + ' · ' + affected : '';
+  return healthTag(effective, label);
+}
+
+function detailRow(parent, label, value, valueClass) {
   const row = document.createElement('div');
   row.className = 'detail-row';
-  row.append(makeText('span', label), makeText('strong', value));
+  row.append(makeText('span', label), makeText('strong', value, valueClass));
   parent.append(row);
 }
 
@@ -456,17 +502,18 @@ function arrayInfo(array, drives, open) {
   card.open = open.has(card.dataset.storageKey);
   const summary = document.createElement('summary');
   const name = [array.name, array.level, array.group].filter(Boolean).join(' · ');
-  summary.append(makeText('strong', name), healthTag(array.status));
+  const members = (array.members || []).map(id => drives.get(id)).filter(Boolean);
+  const effective = mostSevereStorageStatus(array.status, members);
+  summary.append(makeText('strong', name), storageSummaryTag(array.status, effective, 'диск'));
   card.append(summary);
   const fields = [
     ['Объём', array.sizeBytes ? fmtBytes(array.sizeBytes) : null],
     ['Ожидается дисков', array.expected || null],
     ['Отсутствует дисков', array.missing || null],
     ['Прогресс', array.progress != null ? fmtPercent(array.progress) : null],
-    ['Состояние по данным источника', array.detail]
+    ['Состояние массива по данным источника', array.detail || storageStates[array.status]?.[0]]
   ];
   for (const [key, value] of fields) if (value != null && value !== '') detailRow(card, key, value);
-  const members = (array.members || []).map(id => drives.get(id)).filter(Boolean);
   if (members.length) card.append(driveTable(members));
   else card.append(makeText('p', 'Источник не передал состав массива.', 'muted'));
   return card;
@@ -505,15 +552,16 @@ function storageInventory(report, open = new Set()) {
     block.className = 'storage-controller';
     const header = document.createElement('div');
     header.className = 'storage-controller-head';
-    header.append(makeText('h4', c.model || c.id), healthTag(c.status));
+    const list = arrays.filter(a => a.controller === c.id);
+    const attached = (inventory.drives || []).filter(drive => drive.controller === c.id);
+    const effective = mostSevereStorageStatus(c.status, [...list, ...attached]);
+    header.append(makeText('h4', c.model || c.id), storageSummaryTag(c.status, effective, 'хранилище'));
     block.append(header);
     const identity = [storageSources[c.source] || c.source, c.serial && ('S/N ' + c.serial),
       c.firmware && ('FW ' + c.firmware), c.detail].filter(Boolean);
     if (identity.length) block.append(makeText('p', identity.join(' · '), 'muted'));
     if (c.source === 'raid-os') block.append(makeText('p', 'Для состояния массивов и списка физических дисков нужна утилита производителя.', 'muted'));
-    const list = arrays.filter(a => a.controller === c.id);
     for (const a of list) block.append(arrayInfo(a, drives, open));
-    const attached = (inventory.drives || []).filter(drive => drive.controller === c.id);
     if (attached.length) {
       const physical = document.createElement('details');
       physical.className = 'storage-array';
@@ -551,9 +599,9 @@ function renderStorage() {
     section.dataset.agent = report.id;
     section.open = open.has(report.id) || (reports.length === 1 && !root.children.length);
     const title = document.createElement('summary');
-    title.append(makeText('strong', report.hostname), makeText('span', report.os, 'muted'));
-    if (Date.now() - Date.parse(report.receivedAt) > 120000) title.append(makeText('span', 'Нет связи', 'tag grey'));
-    else if (storageHasWarning(report)) title.append(makeText('span', 'Требуется внимание', 'tag storage-warning'));
+    const status = stateFor(report);
+    title.append(makeText('strong', report.hostname), makeText('span', osDisplay(report), 'muted'),
+      makeText('span', systemStates[status], 'state-text ' + status));
     title.append(makeText('span', 'Массивы: ' + fmtArrayCount(report), 'tag grey'));
     const prefix = report.id + '/';
     const expanded = [...open].filter(key => key?.startsWith(prefix)).map(key => key.slice(prefix.length));

@@ -93,3 +93,35 @@ func TestDashboardStaleAgentDoesNotReportHealthyRAID(t *testing.T) {
 		t.Fatalf("stale data shown as current: %+v", data)
 	}
 }
+
+func TestDashboardPropagatesDiskIssuesToArrayAndHost(t *testing.T) {
+	s := &server{agents: map[string]telemetry.Report{}}
+	for _, tc := range []struct{ disk, host, alarm string }{
+		{"degraded", "warning", "warning"},
+		{"inactive", "critical", "critical"},
+	} {
+		s.agents["srv"] = telemetry.Report{
+			ID: "srv", Hostname: "SRV104", ReceivedAt: time.Now(),
+			Arrays: []telemetry.Array{
+				{Name: "VMs", Status: "active", Members: []string{"bad"}},
+				{Name: "Backup", Status: "active", Members: []string{"good"}},
+			},
+			Storage: &telemetry.Storage{Drives: []telemetry.Drive{
+				{ID: "bad", Slot: "252:10", Status: tc.disk}, {ID: "good", Slot: "252:9", Status: "active"},
+			}},
+		}
+		req := httptest.NewRequest("GET", "/api/dashboard", nil)
+		response := httptest.NewRecorder()
+		s.getDashboardData(response, req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{Scope: scopeServers})))
+		var data DashboardData
+		if err := json.Unmarshal(response.Body.Bytes(), &data); err != nil {
+			t.Fatal(err)
+		}
+		if len(data.Hosts) != 1 || data.Hosts[0].Status != tc.host || len(data.Arrays) != 2 ||
+			data.Arrays[0].Status != "active" || data.Arrays[0].MemberIssue ||
+			data.Arrays[1].Status != tc.disk || !data.Arrays[1].MemberIssue ||
+			len(data.Problems) != 1 || data.Problems[0].Severity != tc.alarm {
+			t.Fatalf("bad RAID status for %s: %+v", tc.disk, data)
+		}
+	}
+}

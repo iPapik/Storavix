@@ -61,8 +61,8 @@ func main() {
 	allowHTTP := flag.Bool("allow-http", false, "INSECURE: allow unencrypted transport on a trusted network only")
 	logFile := flag.String("log-file", "", "agent diagnostics file; default data-dir/agent.log")
 	raidTool := flag.String("install-raid-tool", "", "stage a verified portable RAID CLI (storcli, storcli2, perccli, perccli2, ssacli)")
-	raidSource := flag.String("raid-tool-source", "", "absolute path or HTTPS URL of the RAID executable")
-	raidChecksum := flag.String("raid-tool-sha256", "", "SHA-256 of the RAID executable")
+	raidSource := flag.String("raid-tool-source", "", "absolute path or HTTPS URL of the RAID executable or Dell PERCcli ZPE package")
+	raidChecksum := flag.String("raid-tool-sha256", "", "SHA-256 of the RAID executable or package")
 	raidIfDetected := flag.Bool("raid-tool-if-detected", false, "stage only if compatible RAID hardware is detected")
 	flag.Parse()
 	if *raidTool != "" || *raidSource != "" || *raidChecksum != "" || *raidIfDetected {
@@ -129,6 +129,7 @@ func main() {
 		hostname = hostname[:128]
 	}
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	osName := collector.OSName()
 	var prev collector.Snapshot
 	var last time.Time
 	var inventory *collector.Inventory
@@ -158,6 +159,7 @@ func main() {
 		r.ID = id
 		r.Hostname = hostname
 		r.OS = runtime.GOOS
+		r.OSName = osName
 		r.Version = telemetry.AgentVersion
 		now := time.Now()
 		// Network and CPU counters need consecutive samples; the first sample is unknown, never fake 0.
@@ -210,27 +212,36 @@ func normalizeServerURL(raw string, allowHTTP bool) (string, error) {
 }
 
 func send(client *http.Client, base, token string, r telemetry.Report) error {
-	b, e := json.Marshal(r)
-	if e != nil {
-		return e
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	req, e := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(base, "/")+"/api/agent/report", strings.NewReader(string(b)))
-	if e != nil {
-		return e
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("X-Storavix-Request", "1")
-	req.Header.Set("Content-Type", "application/json")
-	ans, e := client.Do(req)
-	if e != nil {
-		return e
-	}
-	defer ans.Body.Close()
-	if ans.StatusCode != http.StatusAccepted {
+	for {
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(base, "/")+"/api/agent/report", strings.NewReader(string(b)))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Storavix-Request", "1")
+		req.Header.Set("Content-Type", "application/json")
+		ans, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		if ans.StatusCode == http.StatusAccepted {
+			ans.Body.Close()
+			return nil
+		}
 		msg, _ := io.ReadAll(io.LimitReader(ans.Body, 240))
-		return fmt.Errorf("server returned %d %s", ans.StatusCode, strings.TrimSpace(string(msg)))
+		ans.Body.Close()
+		message := strings.TrimSpace(string(msg))
+		// Older Storavix servers reject unknown JSON fields before ingesting.
+		if ans.StatusCode == http.StatusBadRequest && r.OSName != "" && message == `{"error":"invalid report"}` {
+			r.OSName = ""
+			continue
+		}
+		return fmt.Errorf("server returned %d %s", ans.StatusCode, message)
 	}
-	return nil
 }

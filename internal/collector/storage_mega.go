@@ -48,16 +48,24 @@ type megaController struct {
 	Data    megaResponse `json:"Response Data"`
 }
 
-func decodeMega(output []byte) ([]megaController, string) {
+func megaPayload(output []byte) []megaController {
 	var payload struct{ Controllers []megaController }
 	start := bytes.IndexByte(output, '{')
 	end := bytes.LastIndexByte(output, '}')
-	if start < 0 || end <= start || json.Unmarshal(output[start:end+1], &payload) != nil || payload.Controllers == nil {
+	if start < 0 || end <= start || json.Unmarshal(output[start:end+1], &payload) != nil {
+		return nil
+	}
+	return payload.Controllers
+}
+
+func decodeMega(output []byte) ([]megaController, string) {
+	payload := megaPayload(output)
+	if payload == nil {
 		return nil, "error"
 	}
 	var valid []megaController
 	failed := false
-	for _, c := range payload.Controllers {
+	for _, c := range payload {
 		status := c.Command.value("Status")
 		description := strings.ToLower(c.Command.value("Description", "Detailed Status"))
 		if strings.EqualFold(status, "success") {
@@ -187,35 +195,58 @@ func cliSource(path string) string {
 func readMega(path string) (Inventory, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
 	defer cancel()
-	run := func(args ...string) ([]megaController, string) {
-		b, err := runStorageCLI(ctx, path, args...)
-		// Some versions return a nonzero code for a mixed controller response.
-		// Decode any JSON included in stdout before treating the whole poll as failed.
-		if err != nil && len(b) == 0 {
-			return nil, "error"
-		}
-		return decodeMega(b)
+	run := func(args ...string) []byte {
+		// A mixed result can contain useful JSON even with a nonzero exit code.
+		b, _ := runStorageCLI(ctx, path, args...)
+		return b
 	}
-	base, status := run("/call", "show", "all", "J")
+	return readMegaWithRunner(cliSource(path), run)
+}
+
+func readMegaWithRunner(source string, run func(...string) []byte) (Inventory, string) {
+	base, status := decodeMega(run("/call", "show", "all", "J"))
+	var legacy []string
+	if len(base) == 0 && status == "error" && source == "perccli" {
+		legacy = megaControllerPaths(run("show", "J"))
+		if len(legacy) == 0 {
+			legacy = []string{"/c0"}
+		}
+		var missed bool
+		for _, controller := range legacy {
+			items, result := decodeMega(run(controller, "show", "all", "J"))
+			missed = missed || len(items) == 0 || result != "ok"
+			base = append(base, items...)
+		}
+		if len(base) > 0 {
+			status = "ok"
+			if missed {
+				status = "partial"
+			}
+		}
+	}
 	if len(base) == 0 {
 		return Inventory{}, status
 	}
-	disks, _ := run("/call/eall/sall", "show", "all", "J")
-	details := megaDetails(disks)
-	disks, _ = run("/call/sall", "show", "all", "J")
-	for key, disk := range megaDetails(disks) {
-		details[key] = disk
+	detailRows := func(action string) []megaController {
+		targets := legacy
+		if len(targets) == 0 {
+			targets = []string{"/call"}
+		}
+		var rows []megaController
+		for _, controller := range targets {
+			for _, suffix := range []string{"/eall/sall", "/sall"} {
+				result, _ := decodeMega(run(controller+suffix, "show", action, "J"))
+				rows = append(rows, result...)
+			}
+		}
+		return rows
 	}
+	details := megaDetails(detailRows("all"))
 	var progress map[megaKey]*float64
 	if hasMegaRebuild(base) {
-		rows, _ := run("/call/eall/sall", "show", "rebuild", "J")
-		progress = megaProgress(rows)
-		rows, _ = run("/call/sall", "show", "rebuild", "J")
-		for key, value := range megaProgress(rows) {
-			progress[key] = value
-		}
+		progress = megaProgress(detailRows("rebuild"))
 	}
-	result := parseMega(cliSource(path), base, details, progress)
+	result := parseMega(source, base, details, progress)
 	for _, d := range result.Drives {
 		if d.Serial == "" && d.Status != "inactive" {
 			status = "partial"
@@ -223,6 +254,23 @@ func readMega(path string) (Inventory, string) {
 		}
 	}
 	return result, status
+}
+
+func megaControllerPaths(data []byte) []string {
+	var paths []string
+	for _, response := range megaPayload(data) {
+		for _, controller := range response.Data.rows("System Overview") {
+			index, err := strconv.Atoi(controller.value("Ctl", "Controller"))
+			if err != nil || index < 0 || index >= telemetry.MaxControllers {
+				continue
+			}
+			path := "/c" + strconv.Itoa(index)
+			if !contains(paths, path) {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
 }
 
 func hasMegaRebuild(base []megaController) bool {

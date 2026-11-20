@@ -36,7 +36,7 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .system-card:hover,.system-card:focus-visible{border-color:#777;outline:none}
 .system-head{display:flex;align-items:center;gap:10px;min-height:61px;border-bottom:1px solid #303032;padding:0 21px}
 .system-head b{font-size:18px}.system-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7d7d7d;flex:0 0 auto}
-.system-dot.online{background:#3cbd78}.system-dot.offline{background:#f06c6c}.system-dot.warn{background:#e9b639}
+.system-dot.online{background:#3cbd78}.system-dot.offline,.system-dot.critical{background:#f06c6c}.system-dot.warn{background:#e9b639}
 .system-state{margin-left:auto;color:#aaa;font-size:13px}.system-metrics{padding:16px 21px 20px}
 .system-metric{display:grid;grid-template-columns:28px minmax(112px,0.72fr) minmax(78px,0.5fr) minmax(60px,1fr);align-items:center;gap:10px;min-height:37px;font-size:15px}
 .system-icon{color:#a5a7ac;font-size:20px}.system-label{color:#c5c5c5}.system-value{font-weight:600;color:#f2f2f2;white-space:nowrap}
@@ -125,7 +125,7 @@ input:focus,select:focus{border-color:#999;box-shadow:0 0 0 2px #7773}input::pla
 .storage-array .detail-row strong{text-align:right}
 .storage-array .muted,.storage-array .storage-table-wrap{margin-top:10px}
 .storage-inventory .tag,.storage-host .tag{white-space:nowrap}
-.tag.storage-warning{background:#3f2c11;color:#ffce83}
+.tag.storage-warning{background:#3f2c11;color:#ffd365}
 .tag.storage-failed{background:#421e25;color:#ffadb8}
 .storage-table-wrap{overflow:auto;max-width:100%}
 .storage-table{width:100%;font-size:13px;border-collapse:collapse}
@@ -270,3 +270,8 @@ label.check-field input[type="checkbox"]{flex:none}
 .widget-geo-form input{width:135px;max-width:100%}
 .geo-picking,.geo-picking .leaflet-grab{cursor:crosshair}
 .widget-geo-tools .form-msg{margin:5px 0;font-size:12px}
+
+.state-text.online{color:#56d990}
+.state-text.warn{color:#ffd365}
+.state-text.critical,.state-text.offline{color:#ff8a96}
+.system-metric .system-value{overflow-wrap:anywhere}
