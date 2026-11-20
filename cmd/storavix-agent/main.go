@@ -132,26 +132,31 @@ func main() {
 	osName := collector.OSName()
 	var prev collector.Snapshot
 	var last time.Time
-	var inventory *collector.Inventory
+	type hardwareSample struct {
+		inventory   collector.Inventory
+		temperature *float64
+	}
+	var hardware *hardwareSample
 	pollingStorage := true
-	storage := make(chan collector.Inventory, 1)
-	scan := func() { storage <- collector.ReadStorage() }
+	storage := make(chan hardwareSample, 1)
+	scan := func() { storage <- hardwareSample{collector.ReadStorage(), collector.Temperature()} }
 	go scan()
 	for {
 		r, current := collector.Read()
 		select {
 		case result := <-storage:
-			inventory = &result
+			hardware = &result
 			pollingStorage = false
 		default:
 			if *once {
 				result := <-storage
-				inventory = &result
+				hardware = &result
 			}
 		}
-		if inventory != nil {
-			inventory.AddTo(&r)
-			if !*once && time.Since(inventory.CollectedAt) >= time.Minute && !pollingStorage {
+		if hardware != nil {
+			hardware.inventory.AddTo(&r)
+			r.Temperature = hardware.temperature
+			if !*once && time.Since(hardware.inventory.CollectedAt) >= time.Minute && !pollingStorage {
 				pollingStorage = true
 				go scan()
 			}
@@ -238,9 +243,15 @@ func send(client *http.Client, base, token string, r telemetry.Report) error {
 		ans.Body.Close()
 		message := strings.TrimSpace(string(msg))
 		// Older Storavix servers reject unknown JSON fields before ingesting.
-		if ans.StatusCode == http.StatusBadRequest && r.OSName != "" && message == `{"error":"invalid report"}` {
-			r.OSName = ""
-			continue
+		if ans.StatusCode == http.StatusBadRequest && message == `{"error":"invalid report"}` {
+			if r.Temperature != nil {
+				r.Temperature = nil
+				continue
+			}
+			if r.OSName != "" {
+				r.OSName = ""
+				continue
+			}
 		}
 		return fmt.Errorf("server returned %d %s", ans.StatusCode, message)
 	}

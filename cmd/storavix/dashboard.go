@@ -160,11 +160,12 @@ type DashboardArray struct {
 }
 
 type DashboardProblem struct {
-	Kind     string `json:"kind"`
-	Ref      string `json:"ref"`
-	Source   string `json:"source"`
-	Message  string `json:"message"`
-	Severity string `json:"severity"`
+	Kind       string     `json:"kind"`
+	Ref        string     `json:"ref"`
+	Source     string     `json:"source"`
+	Message    string     `json:"message"`
+	Severity   string     `json:"severity"`
+	OccurredAt *time.Time `json:"occurredAt,omitempty"`
 }
 
 type DashboardData struct {
@@ -198,14 +199,18 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		if !user.servers() {
 			break
 		}
-		offline := now.Sub(r.ReceivedAt) > 120*time.Second
+		conditions := s.state.Monitor["server:"+r.ID]
+		add := func(message, severity, condition, status string) {
+			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, message, severity, conditions.since(condition, status)})
+		}
+		offline := now.Sub(r.ReceivedAt) > agentOfflineAfter
 		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up"}
 		if offline {
 			h.Status = "down"
-			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, "Агент не отвечает", "critical"})
+			add("Агент не отвечает", "critical", "availability", "down")
 		}
 		issue := "active"
-		addProblem := func(name, status string) {
+		addProblem := func(name, status, condition string) {
 			rank := storageIssueRank(status)
 			if offline || rank == 0 {
 				return
@@ -217,7 +222,7 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 			if status == "inactive" {
 				severity = "critical"
 			}
-			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, fmt.Sprintf("%s · %s", name, alarmStorageLabel(status)), severity})
+			add(fmt.Sprintf("%s · %s", name, alarmStorageLabel(status)), severity, condition, status)
 		}
 		drives := make(map[string]string)
 		if r.Storage != nil {
@@ -228,10 +233,10 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 				if name == "" {
 					name = d.Model
 				}
-				addProblem("Диск "+name, d.Status)
+				addProblem("Диск "+name, d.Status, "drive:"+d.ID)
 			}
 			for _, c := range r.Storage.Controllers {
-				addProblem(c.Model, c.Status)
+				addProblem(c.Model, c.Status, "controller:"+c.ID)
 			}
 			for _, source := range r.Storage.Sources {
 				if storageIssueRank(issue) == 0 && (source.Status == "error" || source.Status == "partial") {
@@ -251,7 +256,7 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			data.Arrays = append(data.Arrays, DashboardArray{r.ID, r.Hostname, a.Name, a.Level, status, memberIssue})
-			addProblem(a.Name, a.Status)
+			addProblem(a.Name, a.Status, arrayMonitorKey(a))
 		}
 		if !offline {
 			if issue == "inactive" {
@@ -259,9 +264,34 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 			} else if storageIssueRank(issue) != 0 {
 				h.Status = "warning"
 			}
+			if r.Temperature != nil && conditions.since("temperature", "high") != nil {
+				add(fmt.Sprintf("Высокая температура · %.1f °C", *r.Temperature), "warning", "temperature", "high")
+				if h.Status == "up" {
+					h.Status = "warning"
+				}
+			}
+			if r.DiskPercent != nil && conditions.since("disk-space", "high") != nil {
+				add(fmt.Sprintf("Системный том занят на %.1f%%", *r.DiskPercent), "warning", "disk-space", "high")
+				if h.Status == "up" {
+					h.Status = "warning"
+				}
+			}
 		}
 		data.Hosts = append(data.Hosts, h)
 	}
+	for _, n := range data.Network {
+		conditions := s.state.Monitor["switch:"+n.ID]
+		if conditions.Generation != s.networkSamples[n.ID].generation {
+			conditions = monitorState{}
+		}
+		if n.Status == "down" {
+			data.Problems = append(data.Problems, DashboardProblem{"switch", n.ID, n.Name, "Коммутатор не отвечает на настроенную проверку", "critical", conditions.since("availability", "down")})
+		}
+		if n.Status == "up" && n.Temperature != nil && conditions.since("temperature", "high") != nil {
+			data.Problems = append(data.Problems, DashboardProblem{"switch", n.ID, n.Name, fmt.Sprintf("Высокая температура · %.1f °C", *n.Temperature), "warning", conditions.since("temperature", "high")})
+		}
+	}
+
 	s.mu.Unlock()
 	sort.Slice(data.Hosts, func(i, j int) bool {
 		return data.Hosts[i].Name+data.Hosts[i].ID < data.Hosts[j].Name+data.Hosts[j].ID
@@ -270,11 +300,6 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		a, b := data.Arrays[i], data.Arrays[j]
 		return a.Host+a.HostID+a.Name < b.Host+b.HostID+b.Name
 	})
-	for _, n := range data.Network {
-		if n.Status == "down" {
-			data.Problems = append(data.Problems, DashboardProblem{"switch", n.ID, n.Name, "Коммутатор не отвечает на настроенную проверку", "critical"})
-		}
-	}
 	sort.Slice(data.Problems, func(i, j int) bool {
 		a, b := data.Problems[i], data.Problems[j]
 		return a.Severity+a.Source+a.Message < b.Severity+b.Source+b.Message

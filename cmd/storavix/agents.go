@@ -6,14 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/iPapik/Storavix/internal/telemetry"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/iPapik/Storavix/internal/telemetry"
 )
 
 func ensureAgentToken(dir string) (string, error) {
@@ -154,6 +156,14 @@ func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, "Не удалось сохранить удаление")
 		return
 	}
+	key := "server:" + id
+	if monitor, ok := s.state.Monitor[key]; ok {
+		delete(s.state.Monitor, key)
+		if err := s.saveLocked(); err != nil {
+			s.state.Monitor[key] = monitor
+			log.Printf("remove monitoring state for %s: %v", id, err)
+		}
+	}
 	s.mu.Unlock()
 	sendJSON(w, 200, map[string]string{"status": "deleted"})
 }
@@ -190,7 +200,6 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, e.Error())
 		return
 	}
-	report.ReceivedAt = time.Now().UTC()
 	s.mu.Lock()
 	if s.deletedAgents[report.ID] {
 		s.mu.Unlock()
@@ -202,6 +211,7 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "host limit reached")
 		return
 	}
+	report.ReceivedAt = time.Now().UTC()
 	previous, existed := s.agents[report.ID]
 	s.agents[report.ID] = report
 	e = s.saveAgentsLocked()
@@ -211,6 +221,8 @@ func (s *server) ingestAgent(w http.ResponseWriter, r *http.Request) {
 		} else {
 			delete(s.agents, report.ID)
 		}
+	} else {
+		s.observeAgentLocked(report)
 	}
 	s.mu.Unlock()
 	if e != nil {

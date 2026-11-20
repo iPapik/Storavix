@@ -65,6 +65,11 @@ function problemNode(problem) {
   const info = document.createElement('div');
   info.append(routeLink(problem.source, problem.kind === 'server' ? 'server' : 'network', problem.ref),
     makeText('small', problem.message, 'muted'));
+  if (problem.occurredAt) {
+    const date = makeText('time', new Date(problem.occurredAt).toLocaleString('ru-RU'), 'muted problem-date');
+    date.dateTime = problem.occurredAt;
+    info.append(date);
+  }
   const critical = problem.severity === 'critical';
   row.append(info, makeText('span', critical ? 'Критично' : 'Внимание',
     'tag ' + (critical ? 'storage-failed' : 'storage-warning')));
@@ -348,6 +353,7 @@ function renderNetwork() {
     const proto = device.method === 'snmp' ? 'SNMP v2c · UDP ' : 'TCP ';
     details.append(makeText('p', [device.system, proto + device.port,
       device.checkedAt && ('Опрос ' + new Date(device.checkedAt).toLocaleString('ru-RU'))].filter(Boolean).join(' · '), 'muted'));
+    if (device.temperature != null && device.status === 'up') details.append(makeText('p', 'Температура: ' + fmtTemperature(device.temperature), 'muted'));
     if (device.message) details.append(makeText('p', device.message, 'muted'));
     if (device.ports?.length) {
       details.append(makeText('p', device.status === 'stale' ? 'Последний полученный снимок интерфейсов' : portSummary(device), 'muted'), dataTable(
@@ -373,6 +379,8 @@ function editNetwork(device) {
   $('network-method').value = device?.method || 'snmp';
   $('network-port').value = device?.port || 161;
   $('network-community').value = '';
+  $('network-temp-oid').value = device?.temperatureOID || '';
+  $('network-temp-divisor').value = device?.temperatureDivisor || 1;
   $('network-community').placeholder = device?.method === 'snmp' ? 'Оставьте пустым, чтобы сохранить' : '';
   $('network-form').classList.remove('hidden');
   msg('network-msg');
@@ -383,6 +391,8 @@ function editNetwork(device) {
 function syncNetworkForm() {
   const snmp = $('network-method').value === 'snmp';
   $('network-community-label').classList.toggle('hidden', !snmp);
+  $('network-temp-oid-label').classList.toggle('hidden', !snmp);
+  $('network-temp-divisor-label').classList.toggle('hidden', !snmp || !$('network-temp-oid').value.trim());
   const existing = networkDevices.find(device => device.id === networkEditing);
   $('network-community').required = snmp && existing?.method !== 'snmp';
 }
@@ -408,6 +418,7 @@ $('network-method').addEventListener('change', () => {
   $('network-port').value = $('network-method').value === 'snmp' ? 161 : 443;
   syncNetworkForm();
 });
+$('network-temp-oid').addEventListener('input', syncNetworkForm);
 $('network-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = $('network-save');
@@ -416,7 +427,9 @@ $('network-form').addEventListener('submit', async event => {
     const method = $('network-method').value;
     const device = {
       name: $('network-name').value.trim(), host: $('network-host').value.trim(), method,
-      port: Number($('network-port').value), community: method === 'snmp' ? $('network-community').value : ''
+      port: Number($('network-port').value), community: method === 'snmp' ? $('network-community').value : '',
+      temperatureOID: method === 'snmp' ? $('network-temp-oid').value.trim() : '',
+      temperatureDivisor: method === 'snmp' ? Number($('network-temp-divisor').value) : 0
     };
     const result = await api('/api/network/' + networkEditing, {method: 'PUT', body: JSON.stringify(device)});
     $('network-form').classList.add('hidden');

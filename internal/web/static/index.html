@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.18"></head>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.19"></head>
 <body>
 <div id="login" class="login-page hidden"><div class="login-card"><div class="brand login-brand brand-integrated"><img class="login-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div><h1>Добро пожаловать</h1><p class="muted">Войдите, чтобы открыть панель мониторинга.</p><form id="login-form"><label>Имя пользователя<input id="login-user" autocomplete="username" placeholder="Логин, заданный при установке" required></label><label>Пароль<input id="login-pass" type="password" autocomplete="current-password" required></label><button class="primary wide">Войти в Storavix <span>→</span></button></form><p class="form-msg" id="login-msg"></p><p class="micro">Логин и пароль администратора задаются при первоначальной установке Storavix.</p></div></div>
 <div id="shell" class="app hidden">
@@ -61,6 +61,8 @@
    <label>Опрос<select id="network-method"><option value="snmp">SNMP v2c</option><option value="tcp">TCP-порт</option></select></label>
    <label>Порт<input id="network-port" required type="number" min="1" max="65535" value="161"></label>
    <label id="network-community-label">Read-only community<input id="network-community" type="password" maxlength="128" autocomplete="new-password"></label>
+   <label id="network-temp-oid-label">OID температуры (необязательно)<input id="network-temp-oid" maxlength="341" placeholder="ENTITY-SENSOR-MIB автоматически"></label>
+   <label id="network-temp-divisor-label">Делитель значения<select id="network-temp-divisor"><option value="1">1</option><option value="10">10</option><option value="100">100</option><option value="1000">1000</option></select></label>
    <div class="toolbar-actions"><button id="network-save" class="primary" type="submit">Сохранить</button><button id="network-cancel" class="secondary" type="button">Отмена</button></div>
   </form>
   <p id="network-msg" class="form-msg" role="status"></p>
@@ -105,7 +107,7 @@
   <div class="page-toolbar"><button id="alert-refresh" class="secondary small" type="button">Обновить</button></div>
   <div class="alerts-panels">
    <section class="panel"><h2>Активные алармы</h2><div id="active-alerts"></div></section>
-   <section id="notification-history" class="panel"><h2>Журнал уведомлений</h2><div id="alerts-list" class="alerts-list"></div></section>
+   <section id="notification-history" class="panel"><h2>Журнал событий</h2><div id="alerts-list" class="alerts-list"></div></section>
   </div>
  </section>
  <section id="settings-view" class="page-view hidden"><div class="settings-layout"><div class="settings-tabs"><button class="active" data-tab="smtp">SMTP</button><button data-tab="syslog">Syslog</button><button data-tab="users">Пользователи</button><button data-tab="account">♙ Безопасность</button></div><div id="smtp-settings" class="panel settings-panel"><div class="settings-heading"><h2>Настройка SMTP</h2></div>
@@ -117,7 +119,16 @@
    </div>
    <div id="mail-cert-preview" class="hidden" aria-live="polite"></div>
   </div>
- </div><div class="settings-actions"><button class="primary" type="submit">Сохранить настройки</button><button class="secondary" type="button" id="test-email">Отправить тестовое письмо</button><button class="secondary" type="button" id="test-alert">Создать тестовый алерт</button></div></form><p id="smtp-msg" class="form-msg" role="status"></p></div>
+ </div>
+ <fieldset class="smtp-alert-rules">
+  <legend>Автоматические уведомления</legend>
+  <div id="mail-alert-rules" class="smtp-rule-grid"></div>
+  <div class="field-grid smtp-thresholds">
+   <label>Порог температуры сервера, °C<input id="mail-server-temp" type="number" min="10" max="125" value="80" required></label>
+   <label>Порог температуры коммутатора, °C<input id="mail-switch-temp" type="number" min="10" max="125" value="70" required></label>
+  </div>
+ </fieldset>
+ <div class="settings-actions"><button class="primary" type="submit">Сохранить настройки</button><button class="secondary" type="button" id="test-email">Отправить тестовое письмо</button><button class="secondary" type="button" id="test-alert">Создать тестовый алерт</button></div></form><p id="smtp-msg" class="form-msg" role="status"></p></div>
  <div id="syslog-settings" class="panel settings-panel hidden">
   <div class="settings-heading syslog-heading">
    <div><h2>Приём Syslog</h2><p>Укажите этот порт в настройках отправителя Syslog.</p></div>
@@ -159,10 +170,10 @@
  <div id="account-settings" class="panel settings-panel hidden"><div class="settings-heading"><div><h2>Безопасность учётной записи</h2><p>Измените пароль для доступа к веб-панели</p></div></div><form id="password-form"><label>Текущий пароль<input id="old-password" type="password" required></label><label>Новый пароль (не меньше 8 символов)<input id="new-password" type="password" minlength="8" required></label><div class="settings-actions"><button class="primary">Изменить пароль</button></div></form><p id="password-msg" class="form-msg"></p></div></div></section>
  </main><footer class="footer">Storavix <b id="footer-version"></b> <span>·</span> Infrastructure & Storage Monitoring <span class="footer-right">Open Source · Self-hosted</span></footer></div>
 </div><script src="/vendor/leaflet/leaflet.js" defer></script>
-<script src="/app.js?v=0.2.18" defer></script>
-<script src="/widget-grid.js?v=0.2.18" defer></script>
-<script src="/geo.js?v=0.2.18" defer></script>
-<script src="/syslog.js?v=0.2.18" defer></script>
-<script src="/accounts.js?v=0.2.18" defer></script>
-<script src="/snmp-events.js?v=0.2.18" defer></script>
-<script src="/dashboard.js?v=0.2.18" defer></script></body></html>
+<script src="/app.js?v=0.2.19" defer></script>
+<script src="/widget-grid.js?v=0.2.19" defer></script>
+<script src="/geo.js?v=0.2.19" defer></script>
+<script src="/syslog.js?v=0.2.19" defer></script>
+<script src="/accounts.js?v=0.2.19" defer></script>
+<script src="/snmp-events.js?v=0.2.19" defer></script>
+<script src="/dashboard.js?v=0.2.19" defer></script></body></html>

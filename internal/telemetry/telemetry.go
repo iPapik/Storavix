@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.2.18"
+const AgentVersion = "0.2.19"
 const MaxReports = 500
 const MaxReportBytes = 1024 * 1024
 
@@ -22,6 +22,7 @@ type Report struct {
 	Version            string    `json:"version"`
 	CPUPercent         *float64  `json:"cpuPercent"`
 	MemoryPercent      *float64  `json:"memoryPercent"`
+	Temperature        *float64  `json:"temperature,omitempty"`
 	DiskPercent        *float64  `json:"diskPercent"` // capacity usage of system filesystem, not RAID health
 	NetworkBytesPerSec *float64  `json:"networkBytesPerSec"`
 	LoadAverage        []float64 `json:"loadAverage,omitempty"`
@@ -113,6 +114,9 @@ func (r Report) Validate() error {
 		if v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > 100) {
 			return errors.New("invalid utilization percentage")
 		}
+	}
+	if !validNumber(r.Temperature, -40, 150) {
+		return errors.New("invalid server temperature")
 	}
 	if r.NetworkBytesPerSec != nil && (math.IsNaN(*r.NetworkBytesPerSec) || math.IsInf(*r.NetworkBytesPerSec, 0) || *r.NetworkBytesPerSec < 0) {
 		return errors.New("invalid network metric")

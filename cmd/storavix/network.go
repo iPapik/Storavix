@@ -20,13 +20,15 @@ import (
 const networkInterval = 45 * time.Second
 
 type NetworkConfig struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Host       string `json:"host"`
-	Method     string `json:"method"`
-	Port       uint16 `json:"port"`
-	Secret     string `json:"secret,omitempty"`
-	Generation string `json:"generation"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Host               string `json:"host"`
+	Method             string `json:"method"`
+	Port               uint16 `json:"port"`
+	Secret             string `json:"secret,omitempty"`
+	Generation         string `json:"generation"`
+	TemperatureOID     string `json:"temperatureOID,omitempty"`
+	TemperatureDivisor int    `json:"temperatureDivisor,omitempty"`
 }
 
 type NetworkPort struct {
@@ -40,30 +42,34 @@ type NetworkPort struct {
 }
 
 type NetworkDevice struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Host      string        `json:"host"`
-	Method    string        `json:"method"`
-	Port      uint16        `json:"port"`
-	Status    string        `json:"status"`
-	CheckedAt *time.Time    `json:"checkedAt,omitempty"`
-	System    string        `json:"system,omitempty"`
-	Message   string        `json:"message,omitempty"`
-	Ports     []NetworkPort `json:"ports,omitempty"`
-	PortCount int           `json:"portCount"`
-	UpPorts   int           `json:"upPorts"`
-	TotalRate *uint64       `json:"totalRate,omitempty"`
+	ID                 string        `json:"id"`
+	Name               string        `json:"name"`
+	Host               string        `json:"host"`
+	Method             string        `json:"method"`
+	Port               uint16        `json:"port"`
+	Status             string        `json:"status"`
+	CheckedAt          *time.Time    `json:"checkedAt,omitempty"`
+	System             string        `json:"system,omitempty"`
+	Message            string        `json:"message,omitempty"`
+	Ports              []NetworkPort `json:"ports,omitempty"`
+	PortCount          int           `json:"portCount"`
+	UpPorts            int           `json:"upPorts"`
+	TotalRate          *uint64       `json:"totalRate,omitempty"`
+	Temperature        *float64      `json:"temperature,omitempty"`
+	TemperatureOID     string        `json:"temperatureOID,omitempty"`
+	TemperatureDivisor int           `json:"temperatureDivisor,omitempty"`
 }
 
 type networkSample struct {
-	generation string
-	address    string
-	status     string
-	at         time.Time
-	system     string
-	message    string
-	ports      []NetworkPort
-	uptime     *uint64
+	generation  string
+	address     string
+	status      string
+	at          time.Time
+	system      string
+	message     string
+	ports       []NetworkPort
+	uptime      *uint64
+	temperature *float64
 }
 
 var dnsLabel = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -94,11 +100,12 @@ func (s *server) networkDevicesLocked(includePorts bool) []NetworkDevice {
 	devices := make([]NetworkDevice, 0, len(s.state.Network))
 	now := time.Now()
 	for _, n := range s.state.Network {
-		d := NetworkDevice{ID: n.ID, Name: n.Name, Host: n.Host, Method: n.Method, Port: n.Port, Status: "pending"}
+		d := NetworkDevice{ID: n.ID, Name: n.Name, Host: n.Host, Method: n.Method, Port: n.Port, Status: "pending", TemperatureOID: n.TemperatureOID, TemperatureDivisor: n.TemperatureDivisor}
 		if sample, ok := s.networkSamples[n.ID]; ok && sample.generation == n.Generation {
 			at := sample.at
 			d.CheckedAt = &at
 			d.Status, d.System, d.Message = sample.status, sample.system, sample.message
+			d.Temperature = sample.temperature
 			if includePorts {
 				d.Ports = sample.ports
 			}
@@ -131,11 +138,13 @@ func (s *server) networkDevicesLocked(includePorts bool) []NetworkDevice {
 
 func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Name      string `json:"name"`
-		Host      string `json:"host"`
-		Method    string `json:"method"`
-		Port      uint16 `json:"port"`
-		Community string `json:"community"`
+		Name               string `json:"name"`
+		Host               string `json:"host"`
+		Method             string `json:"method"`
+		Port               uint16 `json:"port"`
+		Community          string `json:"community"`
+		TemperatureOID     string `json:"temperatureOID"`
+		TemperatureDivisor int    `json:"temperatureDivisor"`
 	}
 	if decodeJSON(r, &input) != nil {
 		problem(w, http.StatusBadRequest, "Некорректные настройки коммутатора")
@@ -147,6 +156,19 @@ func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "Проверьте имя, адрес, способ опроса и порт")
 		return
 	}
+	temperatureOID := strings.TrimSpace(input.TemperatureOID)
+	if temperatureOID != "" {
+		temperatureOID = "." + strings.TrimPrefix(temperatureOID, ".")
+		if input.Method != "snmp" || !validTemperatureOID.MatchString(temperatureOID) ||
+			(input.TemperatureDivisor != 0 && input.TemperatureDivisor != 1 && input.TemperatureDivisor != 10 &&
+				input.TemperatureDivisor != 100 && input.TemperatureDivisor != 1000) {
+			problem(w, http.StatusBadRequest, "Проверьте числовой OID датчика температуры и делитель")
+			return
+		}
+	} else {
+		input.TemperatureDivisor = 0
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := r.PathValue("id")
@@ -170,6 +192,7 @@ func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 		id = hex.EncodeToString(randomBytes(12))
 	}
 	n := NetworkConfig{ID: id, Name: input.Name, Host: input.Host, Method: input.Method, Port: input.Port, Generation: hex.EncodeToString(randomBytes(12))}
+	n.TemperatureOID, n.TemperatureDivisor = temperatureOID, input.TemperatureDivisor
 	if n.Method == "snmp" {
 		switch {
 		case input.Community != "":
@@ -220,8 +243,14 @@ func (s *server) deleteNetworkDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.state.Network = devices
+	key := "switch:" + id
+	monitor, hadMonitor := s.state.Monitor[key]
+	delete(s.state.Monitor, key)
 	if err := s.saveLocked(); err != nil {
 		s.state.Network = previous
+		if hadMonitor {
+			s.state.Monitor[key] = monitor
+		}
 		problem(w, http.StatusInternalServerError, "Не удалось удалить коммутатор")
 		return
 	}
@@ -280,7 +309,7 @@ func (s *server) pollNetworkOnce(ctx context.Context) {
 	workers.Wait()
 }
 
-func (s *server) pollDevice(ctx context.Context, n NetworkConfig) {
+func (s *server) pollDevice(parent context.Context, n NetworkConfig) {
 	s.mu.Lock()
 	old := s.networkSamples[n.ID]
 	s.mu.Unlock()
@@ -288,7 +317,7 @@ func (s *server) pollDevice(ctx context.Context, n NetworkConfig) {
 		return
 	}
 	start := time.Now().UTC()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	sample := networkSample{generation: n.Generation, at: start, status: "down"}
 	if n.Method == "tcp" {
@@ -309,6 +338,10 @@ func (s *server) pollDevice(ctx context.Context, n NetworkConfig) {
 			pollSNMP(ctx, n, secret, &sample)
 		}
 	}
+	if parent.Err() != nil {
+		return
+	}
+	sample.at = time.Now().UTC()
 	if old.generation == n.Generation && old.status == "up" && sample.status == "up" {
 		addPortRates(&sample, old)
 	}
@@ -317,6 +350,7 @@ func (s *server) pollDevice(ctx context.Context, n NetworkConfig) {
 	for _, current := range s.state.Network {
 		if current.ID == n.ID && current.Generation == n.Generation {
 			s.networkSamples[n.ID] = sample
+			s.observeNetworkLocked(n, sample)
 			accepted = true
 			break
 		}
@@ -378,6 +412,7 @@ func pollSNMP(ctx context.Context, n NetworkConfig, community string, sample *ne
 		sample.message = "Коммутатор не открыл доступ к системным OID SNMP"
 		return
 	}
+	sample.temperature = pollSNMPTemperature(ctx, client, n)
 	ports, complete := pollSNMPPorts(client)
 	sample.ports = ports
 	if !complete || len(ports) == 0 {

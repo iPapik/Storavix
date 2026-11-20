@@ -32,28 +32,34 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.18"
+const version = "0.2.19"
 
 type MailConfig struct {
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Security   string `json:"security"` // tls, starttls, none
-	Auth       string `json:"auth"`     // none, plain, login, crammd5, xoauth2
-	Username   string `json:"username"`
-	From       string `json:"from"`
-	Recipients string `json:"recipients"`
-	CAFile     string `json:"caFile"`
-	CertSHA256 string `json:"certSha256,omitempty"`
-	Secret     string `json:"-"`
-	HasSecret  bool   `json:"hasSecret"`
+	Host            string   `json:"host"`
+	Port            int      `json:"port"`
+	Security        string   `json:"security"` // tls, starttls, none
+	Auth            string   `json:"auth"`     // none, plain, login, crammd5, xoauth2
+	Username        string   `json:"username"`
+	From            string   `json:"from"`
+	Recipients      string   `json:"recipients"`
+	CAFile          string   `json:"caFile"`
+	CertSHA256      string   `json:"certSha256,omitempty"`
+	Secret          string   `json:"-"`
+	HasSecret       bool     `json:"hasSecret"`
+	Alerts          []string `json:"alerts,omitempty"`
+	ServerTempLimit int      `json:"serverTempLimit,omitempty"`
+	SwitchTempLimit int      `json:"switchTempLimit,omitempty"`
 }
 type Alert struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"createdAt"`
-	Severity  string    `json:"severity"`
-	Subject   string    `json:"subject"`
-	Detail    string    `json:"detail"`
-	Delivered bool      `json:"delivered"`
+	ID            string    `json:"id"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Severity      string    `json:"severity"`
+	Subject       string    `json:"subject"`
+	Detail        string    `json:"detail"`
+	Delivered     bool      `json:"delivered"`
+	Kind          string    `json:"kind,omitempty"`
+	Delivery      string    `json:"delivery,omitempty"`
+	DeliveryError string    `json:"deliveryError,omitempty"`
 }
 type State struct {
 	Users           map[string]StoredAccount  `json:"users,omitempty"`
@@ -62,6 +68,7 @@ type State struct {
 	PassHash        string                    `json:"passHash"`
 	Mail            MailConfig                `json:"mail"`
 	EncryptedSecret string                    `json:"encryptedSecret"`
+	Monitor         map[string]monitorState   `json:"monitor,omitempty"`
 	Alerts          []Alert                   `json:"alerts"`
 	Dashboard       *DashboardConfig          `json:"dashboard,omitempty"`
 	Network         []NetworkConfig           `json:"network,omitempty"`
@@ -140,7 +147,11 @@ func serve(dir, addr string) error {
 		defer close(networkDone)
 		s.pollNetwork(ctx)
 	}()
-	defer func() { stop(); <-networkDone }()
+	var monitoring sync.WaitGroup
+	monitoring.Add(2)
+	go func() { defer monitoring.Done(); s.runOfflineMonitor(ctx) }()
+	go func() { defer monitoring.Done(); s.runMonitorMail(ctx) }()
+	defer func() { stop(); <-networkDone; monitoring.Wait() }()
 	h := s.routes()
 	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
 	shutdownDone := make(chan struct{})
@@ -341,6 +352,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.requireAuth(s.logout))
 	mux.HandleFunc("GET /api/summary", s.requireAuth(s.summary))
+	mux.HandleFunc("GET /api/settings/mail/events", s.authorize(Account.admin, func(w http.ResponseWriter, _ *http.Request) { sendJSON(w, 200, alertRules) }))
 	mux.HandleFunc("GET /api/settings/mail", s.authorize(Account.admin, s.getMail))
 	mux.HandleFunc("PUT /api/settings/mail", s.authorize(Account.admin, s.setMail))
 	mux.HandleFunc("GET /api/settings/syslog", s.authorize(Account.admin, s.getSyslogSettings))
@@ -558,6 +570,10 @@ func (s *server) setMail(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, e.Error())
 		return
 	}
+	if e := validateAlertSelection(in.MailConfig); e != nil {
+		problem(w, 400, e.Error())
+		return
+	}
 	if len(in.Password) > 4096 {
 		problem(w, 400, "Слишком длинный секрет")
 		return
@@ -661,21 +677,29 @@ func (s *server) alerts(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, a)
 }
 func (s *server) testAlert(w http.ResponseWriter, r *http.Request) {
+	occurred := time.Now().UTC()
 	if !s.checkMailRate() {
 		problem(w, 429, "Повторная отправка возможна через 15 секунд")
 		return
 	}
 	cfg, secret, e := s.mailForTest(r)
 	if e == nil {
-		e = sendMail(cfg, secret, "[TEST] Storavix — тестовое оповещение", "Это тестовое оповещение Storavix. Реальных неисправностей не обнаружено: мониторинг оборудования ещё не подключён.")
+		e = sendMail(cfg, secret, "[TEST] Storavix — тестовое оповещение", "Это тестовое уведомление Storavix для проверки SMTP.")
 	}
-	alert := Alert{ID: hex.EncodeToString(randomBytes(8)), CreatedAt: time.Now().UTC(), Severity: "info", Subject: "Тестовое оповещение", Detail: "Проверка маршрута SMTP", Delivered: e == nil}
+	alert := Alert{ID: hex.EncodeToString(randomBytes(8)), CreatedAt: occurred, Severity: "info", Subject: "Тестовое оповещение", Detail: "Проверка маршрута SMTP", Delivered: e == nil}
+	if e != nil {
+		alert.Delivery = "failed"
+		alert.DeliveryError = safeErr(e)
+	} else {
+		alert.Delivery = "sent"
+	}
 	s.mu.Lock()
-	s.state.Alerts = append([]Alert{alert}, s.state.Alerts...)
-	if len(s.state.Alerts) > 200 {
-		s.state.Alerts = s.state.Alerts[:200]
-	}
+	previous := s.state.Alerts
+	s.state.Alerts = trimAlerts(append([]Alert{alert}, previous...))
 	saveErr := s.saveLocked()
+	if saveErr != nil {
+		s.state.Alerts = previous
+	}
 	s.mu.Unlock()
 	if saveErr != nil {
 		problem(w, 500, "Не удалось сохранить событие")
@@ -727,6 +751,10 @@ func (a oauthAuth) Next(_ []byte, more bool) ([]byte, error) {
 	return nil, nil
 }
 func sendMail(cfg MailConfig, secret, subject, body string) error {
+	return sendMailContext(context.Background(), cfg, secret, subject, body)
+}
+
+func sendMailContext(ctx context.Context, cfg MailConfig, secret, subject, body string) error {
 	if e := validateMail(cfg); e != nil {
 		return e
 	}
@@ -743,7 +771,7 @@ func sendMail(cfg MailConfig, secret, subject, body string) error {
 	if e != nil {
 		return e
 	}
-	client, e := connectSMTP(context.Background(), smtpDestination{cfg.Host, cfg.Port, cfg.Security}, tlsCfg)
+	client, e := connectSMTP(ctx, smtpDestination{cfg.Host, cfg.Port, cfg.Security}, tlsCfg)
 	if e != nil {
 		return e
 	}

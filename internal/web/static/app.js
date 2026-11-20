@@ -183,10 +183,19 @@ function eventNode(event) {
   row.className = 'event-list-row';
   const info = document.createElement('div');
   info.append(makeText('strong', event.subject), makeText('small', event.detail, 'muted'));
+  if (event.deliveryError) info.append(makeText('small', event.deliveryError, 'muted'));
   const date = makeText('time', new Date(event.createdAt).toLocaleString('ru-RU'), 'muted');
   date.dateTime = event.createdAt;
-  row.append(info, date, makeText('span', event.delivered ? 'Отправлено' : 'Ошибка отправки',
-    'tag ' + (event.delivered ? 'green' : 'storage-warning')));
+  const status = {
+    disabled: ['Без письма', 'grey'],
+    queued: ['В очереди', 'grey'],
+    sending: ['Отправляется', 'grey'],
+    unknown: ['Отправка не подтверждена', 'storage-warning'],
+    failed: ['Ошибка отправки', 'storage-warning'],
+    sent: ['Отправлено', 'green']
+  };
+  const [label, style] = status[event.delivery] || status[event.delivered ? 'sent' : 'failed'];
+  row.append(info, date, makeText('span', label, 'tag ' + style));
   return row;
 }
 let mailCertificateRequest = 0;
@@ -199,9 +208,32 @@ function resetMailCertificate() {
   $('mail-cert-fetch').disabled = false;
 }
 
+function renderMailRules(rules, selected) {
+  const root = $('mail-alert-rules');
+  root.replaceChildren();
+  const groups = new Map();
+  for (const rule of rules) {
+    if (!groups.has(rule.group)) {
+      const group = document.createElement('fieldset');
+      group.className = 'smtp-rule-group';
+      group.append(makeText('legend', rule.group));
+      root.append(group);
+      groups.set(rule.group, group);
+    }
+    const field = document.createElement('label');
+    field.className = 'check-field';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = rule.id;
+    input.checked = selected.includes(rule.id);
+    field.append(input, makeText('span', rule.label));
+    groups.get(rule.group).append(field);
+  }
+}
+
 async function loadMail() {
   try {
-    const c = await api('/api/settings/mail');
+    const [c, rules] = await Promise.all([api('/api/settings/mail'), api('/api/settings/mail/events')]);
     $('mail-host').value = c.host || '';
     $('mail-port').value = c.port || 587;
     $('mail-security').value = c.security || 'starttls';
@@ -211,6 +243,9 @@ async function loadMail() {
     $('mail-recipients').value = c.recipients || '';
     $('mail-ca').value = c.caFile || '';
     $('mail-cert-sha').value = c.certSha256 || '';
+    $('mail-server-temp').value = c.serverTempLimit || 80;
+    $('mail-switch-temp').value = c.switchTempLimit || 70;
+    renderMailRules(rules, c.alerts || []);
     $('mail-password').value = '';
     $('mail-password').placeholder = c.hasSecret ? 'Секрет сохранён — оставьте пустым' : 'Введите пароль или access token';
     resetMailCertificate();
@@ -243,7 +278,10 @@ function mailForm() {
     ...destination, auth: $('mail-auth').value, username: $('mail-username').value.trim(),
     password: $('mail-password').value, from: $('mail-from').value.trim(),
     recipients: $('mail-recipients').value.trim(),
-    certSha256: destination.security === 'none' ? '' : $('mail-cert-sha').value.trim()
+    certSha256: destination.security === 'none' ? '' : $('mail-cert-sha').value.trim(),
+    alerts: [...$('mail-alert-rules').querySelectorAll('input:checked')].map(input => input.value),
+    serverTempLimit: Number($('mail-server-temp').value),
+    switchTempLimit: Number($('mail-switch-temp').value)
   };
 }
 
@@ -441,6 +479,10 @@ async function loadServer(id, first = false) {
   }
 }
 
+function fmtTemperature(value) {
+  return value.toLocaleString('ru-RU', {maximumFractionDigits: 1}) + ' °C';
+}
+
 function renderServer(r) {
   setPageTitle(r.hostname);
   const d = $('detail-content');
@@ -461,6 +503,7 @@ function renderServer(r) {
   detailRow(metrics, 'Состояние', systemStates[state], 'state-text ' + state);
   for (const [key, value] of [
     ['Операционная система', osDisplay(r)], ['Последний отчёт', new Date(r.receivedAt).toLocaleString('ru-RU')],
+    ['Температура', r.temperature != null ? fmtTemperature(r.temperature) : null],
     ['Оперативная память', r.memoryBytes ? fmtBytes(r.memoryBytes) : null],
     ['Доступно памяти', r.memoryAvailable != null ? fmtBytes(r.memoryAvailable) : null],
     ['Средняя нагрузка (1, 5, 15 мин.)', r.loadAverage?.length === 3 ? r.loadAverage.join(' / ') : null],
