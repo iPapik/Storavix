@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="Storavix Agent" Manufacturer="Storavix" Version="0.2.16" UpgradeCode="9A844A0A-1FA0-405F-B3D7-D57149C69A5A" Scope="perMachine" Language="1033">
-    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer Storavix Agent is already installed." />
+    <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="A newer Storavix Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Storavix Agent" />
@@ -58,9 +58,9 @@
     <CustomAction Id="ResumeConfiguredAgent" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="commit" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="ResumeAgentOnRollback" Before="StopExistingAgent" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
-      <Custom Action="StopExistingAgent" Before="RemoveExistingProducts" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
-      <Custom Action="ResumeConfiguredAgent" Before="InstallFinalize" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="ResumeAgentOnRollback" Sequence="1510" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="StopExistingAgent" Sequence="1520" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="ResumeConfiguredAgent" Sequence="6590" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
     </InstallExecuteSequence>
 
     <Property Id="SAVEDAGENTURL">

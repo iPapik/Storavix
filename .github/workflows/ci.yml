@@ -170,7 +170,11 @@ jobs:
           if ((Get-Item $msi).Length -lt 100000) { throw 'MSI is unexpectedly small.' }
           if ((Get-Item $exe).Length -lt 100000) { throw 'EXE is unexpectedly small.' }
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', ('"' + $msi + '"'), '/qn', '/norestart', '/l*v', 'msi-install.log')
-          if ($p.ExitCode -notin @(0,3010)) { Get-Content 'msi-install.log' -Tail 100; throw "MSI smoke test failed: $($p.ExitCode)" }
+          if ($p.ExitCode -notin @(0,3010)) {
+            Select-String -Path 'msi-install.log' -Pattern 'Return value 3','WixQuietExec','Error 1722','Error 2762' -Context 4,3
+            Get-Content 'msi-install.log' -Tail 100
+            throw "MSI smoke test failed: $($p.ExitCode)"
+          }
           $agentInstallDir = Join-Path $env:ProgramFiles 'Storavix Agent'
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'MSI did not install the agent EXE.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'configure-agent-windows.ps1'))) { throw 'MSI did not install configuration wizard.' }
@@ -208,6 +212,20 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw 'Invalid token unexpectedly allowed' }
           if (-not (Select-String -Path $badLog -Pattern 'invalid registration token length' -Quiet)) { throw 'Agent fatal diagnostics missing' }
           Write-Host 'MSI -> configure -> registered task -> agent process: PASS'
+          $persistedToken = Join-Path $env:ProgramData 'StoravixAgent/token'
+          $tokenHash = (Get-FileHash -LiteralPath $persistedToken).Hash
+          $savedID = Get-Content -LiteralPath $idPath -Raw
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/fa', ('"' + $msi + '"'), '/qn', '/norestart', '/l*v', 'msi-repair.log')
+          if ($p.ExitCode -ne 0) {
+            Select-String -Path 'msi-repair.log' -Pattern 'Return value 3','WixQuietExec','Error 1722','Error 2762' -Context 4,3
+            throw "MSI repair of a running agent failed: $($p.ExitCode)"
+          }
+          if ((Get-ScheduledTask -TaskName 'StoravixAgent').State -ne 'Running' -or
+              (Get-FileHash -LiteralPath $persistedToken).Hash -ne $tokenHash -or
+              (Get-Content -LiteralPath $idPath -Raw) -ne $savedID) {
+            throw 'MSI did not resume the existing registration'
+          }
+          Write-Host 'MSI with a running agent -> resume saved registration: PASS'
           Stop-ScheduledTask -TaskName StoravixAgent -ErrorAction SilentlyContinue
           Unregister-ScheduledTask -TaskName StoravixAgent -Confirm:$false -ErrorAction SilentlyContinue
           $u = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', ('"' + $msi + '"'), '/qn', '/norestart')
@@ -216,6 +234,11 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "EXE smoke test failed: $($p.ExitCode)" }
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent.exe'))) { throw 'EXE did not install the agent.' }
           if (-not (Test-Path (Join-Path $agentInstallDir 'storavix-agent-legacy.exe'))) { throw 'EXE missing legacy agent.' }
+          if ((Get-ScheduledTask -TaskName 'StoravixAgent').State -ne 'Running' -or
+              (Get-FileHash -LiteralPath $persistedToken).Hash -ne $tokenHash -or
+              (Get-Content -LiteralPath $idPath -Raw) -ne $savedID) {
+            throw 'Silent EXE did not resume the existing registration'
+          }
           # The EXE includes the same offline wizard; validate it end-to-end after silent extraction.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wizard -Console -ServerUrl 'http://127.0.0.1:65503/' -RegistrationTokenFile $tokenFile
           if ($LASTEXITCODE -ne 0) {
