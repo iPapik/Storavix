@@ -134,13 +134,13 @@ function action(label, handler, className = 'text-button') {
 
 function renderOverview() {
   const stats = [
-    ...(hasServerAccess() ? [['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers']] : []),
-    ...(hasNetworkAccess() ? [['Коммутаторы', monitoring.network.length, 'network']] : []),
-    ['Активные алармы', monitoring.problems.length, 'bell']
+    ...(hasServerAccess() ? [['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers', 'servers']] : []),
+    ...(hasNetworkAccess() ? [['Коммутаторы', monitoring.network.length, 'network', 'network']] : []),
+    ['Активные алармы', monitoring.problems.length, 'bell', 'alerts']
   ];
   $('overview-stats').classList.toggle('stats-servers-only', stats.length === 2);
-  $('overview-stats').replaceChildren(...stats.map(([name, value, icon]) => {
-    const tile = document.createElement('div');
+  $('overview-stats').replaceChildren(...stats.map(([name, value, icon, page]) => {
+    const tile = routeLink('', page);
     tile.className = 'panel overview-stat';
     const heading = document.createElement('div');
     heading.append(makeIcon(icon), makeText('span', name, 'muted'));

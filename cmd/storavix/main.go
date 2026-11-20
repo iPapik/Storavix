@@ -7,8 +7,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -25,7 +23,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,7 +32,7 @@ import (
 	"github.com/iPapik/Storavix/internal/web"
 )
 
-const version = "0.2.17"
+const version = "0.2.18"
 
 type MailConfig struct {
 	Host       string `json:"host"`
@@ -46,6 +43,7 @@ type MailConfig struct {
 	From       string `json:"from"`
 	Recipients string `json:"recipients"`
 	CAFile     string `json:"caFile"`
+	CertSHA256 string `json:"certSha256,omitempty"`
 	Secret     string `json:"-"`
 	HasSecret  bool   `json:"hasSecret"`
 }
@@ -352,6 +350,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/locations/{kind}/{id}", s.authorize(Account.write, s.saveLocation))
 	mux.HandleFunc("POST /api/locations/search", s.authorize(Account.write, s.findLocation))
 
+	mux.HandleFunc("POST /api/settings/mail/certificate", s.authorize(Account.admin, s.inspectSMTPCertificate))
 	mux.HandleFunc("POST /api/settings/mail/test", s.authorize(Account.admin, s.testMail))
 	mux.HandleFunc("GET /api/alerts", s.authorize(Account.full, s.alerts))
 	mux.HandleFunc("POST /api/alerts/test", s.authorize(Account.admin, s.testAlert))
@@ -497,14 +496,15 @@ func (s *server) getMail(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, cfg)
 }
 func validateMail(c MailConfig) error {
-	if c.Host == "" || strings.ContainsAny(c.Host, "/\\ \r\n\t") {
-		return errors.New("Укажите корректный SMTP-сервер")
+	if err := (smtpDestination{c.Host, c.Port, c.Security}).validate(); err != nil {
+		return err
 	}
-	if c.Port < 1 || c.Port > 65535 {
-		return errors.New("Порт должен быть от 1 до 65535")
+	pin, err := normalizedCertSHA256(c.CertSHA256)
+	if err != nil {
+		return err
 	}
-	if c.Security != "tls" && c.Security != "starttls" && c.Security != "none" {
-		return errors.New("Неизвестный режим TLS")
+	if pin != "" && c.Security == "none" {
+		return errors.New("Отпечаток сертификата применяется только при STARTTLS или SSL/TLS")
 	}
 	if c.Auth != "none" && c.Auth != "plain" && c.Auth != "login" && c.Auth != "crammd5" && c.Auth != "xoauth2" {
 		return errors.New("Неизвестный метод авторизации")
@@ -542,11 +542,14 @@ func parseRecipients(v string) ([]string, error) {
 	}
 	return out, nil
 }
+
+type mailSettingsInput struct {
+	MailConfig
+	Password string `json:"password"`
+}
+
 func (s *server) setMail(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		MailConfig
-		Password string `json:"password"`
-	}
+	var in mailSettingsInput
 	if e := decodeJSON(r, &in); e != nil {
 		problem(w, 400, "Неверные поля: "+e.Error())
 		return
@@ -575,9 +578,12 @@ func (s *server) setMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.MailConfig.HasSecret = enc != ""
+	in.CertSHA256, _ = normalizedCertSHA256(in.CertSHA256)
+	previous, previousSecret := s.state.Mail, s.state.EncryptedSecret
 	s.state.Mail = in.MailConfig
 	s.state.EncryptedSecret = enc
 	if e := s.saveLocked(); e != nil {
+		s.state.Mail, s.state.EncryptedSecret = previous, previousSecret
 		problem(w, 500, "Не удалось сохранить настройки")
 		return
 	}
@@ -591,6 +597,36 @@ func (s *server) mailSnapshot() (MailConfig, string, error) {
 	secret, e := s.decrypt(enc)
 	return c, secret, e
 }
+func (s *server) mailForTest(r *http.Request) (MailConfig, string, error) {
+	if r.Body == http.NoBody || r.ContentLength == 0 {
+		return s.mailSnapshot()
+	}
+	var in mailSettingsInput
+	if err := decodeJSON(r, &in); err != nil {
+		return MailConfig{}, "", errors.New("Неверные настройки SMTP")
+	}
+	if err := validateMail(in.MailConfig); err != nil {
+		return MailConfig{}, "", err
+	}
+	if len(in.Password) > 4096 {
+		return MailConfig{}, "", errors.New("Слишком длинный секрет")
+	}
+	secret := in.Password
+	if in.Auth != "none" && secret == "" {
+		saved, previous, err := s.mailSnapshot()
+		if err != nil {
+			return MailConfig{}, "", err
+		}
+		if strings.EqualFold(saved.Host, in.Host) && saved.Username == in.Username {
+			secret = previous
+		}
+		if secret == "" {
+			return MailConfig{}, "", errors.New("Укажите пароль или токен для этого SMTP-сервера и логина")
+		}
+	}
+	return in.MailConfig, secret, nil
+}
+
 func (s *server) checkMailRate() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -605,7 +641,7 @@ func (s *server) testMail(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "Повторная отправка возможна через 15 секунд")
 		return
 	}
-	cfg, secret, e := s.mailSnapshot()
+	cfg, secret, e := s.mailForTest(r)
 	if e == nil {
 		e = sendMail(cfg, secret, "Storavix — проверка SMTP", "Проверка настроек почтовых уведомлений Storavix выполнена успешно.")
 	}
@@ -629,7 +665,7 @@ func (s *server) testAlert(w http.ResponseWriter, r *http.Request) {
 		problem(w, 429, "Повторная отправка возможна через 15 секунд")
 		return
 	}
-	cfg, secret, e := s.mailSnapshot()
+	cfg, secret, e := s.mailForTest(r)
 	if e == nil {
 		e = sendMail(cfg, secret, "[TEST] Storavix — тестовое оповещение", "Это тестовое оповещение Storavix. Реальных неисправностей не обнаружено: мониторинг оборудования ещё не подключён.")
 	}
@@ -702,48 +738,16 @@ func sendMail(cfg MailConfig, secret, subject, body string) error {
 	if e != nil {
 		return e
 	}
-	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	tlsCfg := &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12}
-	if cfg.CAFile != "" {
-		ca, e := os.ReadFile(cfg.CAFile)
-		if e != nil {
-			return fmt.Errorf("read CA bundle: %w", e)
-		}
-		pool, e := x509.SystemCertPool()
-		if e != nil || pool == nil {
-			pool = x509.NewCertPool()
-		}
-		if !pool.AppendCertsFromPEM(ca) {
-			return errors.New("CA bundle contains no valid PEM certificates")
-		}
-		tlsCfg.RootCAs = pool
-	}
-	var conn net.Conn
-	if cfg.Security == "tls" {
-		conn, e = tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
-	} else {
-		conn, e = dialer.Dial("tcp", addr)
-	}
+	pin, _ := normalizedCertSHA256(cfg.CertSHA256)
+	tlsCfg, e := smtpTLSConfig(cfg.Host, cfg.CAFile, pin)
 	if e != nil {
 		return e
 	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
-	client, e := smtp.NewClient(conn, cfg.Host)
+	client, e := connectSMTP(context.Background(), smtpDestination{cfg.Host, cfg.Port, cfg.Security}, tlsCfg)
 	if e != nil {
 		return e
 	}
 	defer client.Close()
-	if cfg.Security == "starttls" {
-		supported, _ := client.Extension("STARTTLS")
-		if !supported {
-			return errors.New("server does not advertise STARTTLS")
-		}
-		if e = client.StartTLS(tlsCfg); e != nil {
-			return e
-		}
-	}
 	if cfg.Auth != "none" {
 		if secret == "" {
 			return errors.New("SMTP secret is empty")

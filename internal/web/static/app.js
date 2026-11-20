@@ -189,8 +189,106 @@ function eventNode(event) {
     'tag ' + (event.delivered ? 'green' : 'storage-warning')));
   return row;
 }
-async function loadMail(){try{const c=await api('/api/settings/mail');$('mail-host').value=c.host||'';$('mail-port').value=c.port||587;$('mail-security').value=c.security||'starttls';$('mail-auth').value=c.auth||'plain';$('mail-username').value=c.username||'';$('mail-from').value=c.from||'';$('mail-recipients').value=c.recipients||'';$('mail-ca').value=c.caFile||'';$('mail-password').value='';$('mail-password').placeholder=c.hasSecret?'Секрет сохранён — оставьте пустым':'Введите пароль или access token';mailMode()}catch(e){msg('smtp-msg',e.message,true)}}
-function mailMode(){const a=$('mail-auth').value;const none=a==='none';$('mail-username').disabled=none;$('mail-password').disabled=none;if($('mail-security').value==='none'&&!none){$('mail-auth').value='none';$('mail-username').disabled=true;$('mail-password').disabled=true}if($('mail-security').value==='none'&&$('mail-port').value==='587')$('mail-port').value='25'}
+let mailCertificateRequest = 0;
+
+function resetMailCertificate() {
+  mailCertificateRequest++;
+  const preview = $('mail-cert-preview');
+  preview.replaceChildren();
+  preview.classList.add('hidden');
+  $('mail-cert-fetch').disabled = false;
+}
+
+async function loadMail() {
+  try {
+    const c = await api('/api/settings/mail');
+    $('mail-host').value = c.host || '';
+    $('mail-port').value = c.port || 587;
+    $('mail-security').value = c.security || 'starttls';
+    $('mail-auth').value = c.auth || 'plain';
+    $('mail-username').value = c.username || '';
+    $('mail-from').value = c.from || '';
+    $('mail-recipients').value = c.recipients || '';
+    $('mail-ca').value = c.caFile || '';
+    $('mail-cert-sha').value = c.certSha256 || '';
+    $('mail-password').value = '';
+    $('mail-password').placeholder = c.hasSecret ? 'Секрет сохранён — оставьте пустым' : 'Введите пароль или access token';
+    resetMailCertificate();
+    mailMode();
+  } catch (e) { msg('smtp-msg', e.message, true); }
+}
+
+function mailMode() {
+  const tls = $('mail-security').value !== 'none';
+  if (!tls) {
+    $('mail-auth').value = 'none';
+    if ($('mail-port').value === '587') $('mail-port').value = '25';
+  }
+  const noAuth = $('mail-auth').value === 'none';
+  $('mail-username').disabled = noAuth;
+  $('mail-password').disabled = noAuth;
+  $('smtp-certificate').classList.toggle('hidden', !tls);
+}
+
+function mailDestination() {
+  return {
+    host: $('mail-host').value.trim(), port: Number($('mail-port').value),
+    security: $('mail-security').value, caFile: $('mail-ca').value.trim()
+  };
+}
+
+function mailForm() {
+  const destination = mailDestination();
+  return {
+    ...destination, auth: $('mail-auth').value, username: $('mail-username').value.trim(),
+    password: $('mail-password').value, from: $('mail-from').value.trim(),
+    recipients: $('mail-recipients').value.trim(),
+    certSha256: destination.security === 'none' ? '' : $('mail-cert-sha').value.trim()
+  };
+}
+
+function onMailDestinationChanged() {
+  $('mail-cert-sha').value = '';
+  resetMailCertificate();
+}
+
+$('mail-cert-fetch').addEventListener('click', async () => {
+  if (!$('mail-host').reportValidity() || !$('mail-port').reportValidity()) return;
+  resetMailCertificate();
+  const request = mailCertificateRequest;
+  const button = $('mail-cert-fetch');
+  button.disabled = true;
+  msg('smtp-msg', 'Получаем сертификат SMTP…');
+  try {
+    const certificate = await api('/api/settings/mail/certificate', {
+      method: 'POST', body: JSON.stringify(mailDestination())
+    });
+    if (request !== mailCertificateRequest) return;
+    const preview = $('mail-cert-preview');
+    detailRow(preview, 'Сертификат', certificate.subject || '—');
+    detailRow(preview, 'Издатель', certificate.issuer || '—');
+    detailRow(preview, 'Действует до', new Date(certificate.notAfter).toLocaleString('ru-RU'));
+    detailRow(preview, 'SHA‑256', certificate.sha256.toUpperCase());
+    if (certificate.trusted) {
+      preview.append(makeText('p', 'Цепочка сертификатов проверена.'));
+    } else if (certificate.canPin) {
+      preview.append(makeText('p', 'Сверьте SHA‑256 с отпечатком на почтовом сервере перед сохранением.', 'muted'),
+        action('Использовать отпечаток', () => {
+          $('mail-cert-sha').value = certificate.sha256;
+          msg('smtp-msg', 'Отпечаток добавлен в форму. Сохраните настройки для дальнейших отправок.');
+        }, 'secondary small'));
+    } else {
+      preview.append(makeText('p', certificate.problem || 'Сертификат не подходит для этого сервера.'));
+    }
+    preview.classList.remove('hidden');
+    msg('smtp-msg', '');
+  } catch (e) {
+    if (request === mailCertificateRequest) msg('smtp-msg', e.message, true);
+  } finally {
+    if (request === mailCertificateRequest) button.disabled = false;
+  }
+});
+
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();msg('login-msg','Выполняется вход...');try{const result=await api('/api/login',{method:'POST',body:JSON.stringify({username:$('login-user').value,password:$('login-pass').value})});$('login-pass').value='';msg('login-msg','');showShell(result.user)}catch(err){msg('login-msg',err.message,true)}});
 $('logout').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'})}finally{showAuth()}});
 document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.page)));
@@ -215,11 +313,40 @@ function showSettings(name) {
 
 document.querySelectorAll('[data-tab]').forEach(button =>
   button.addEventListener('click', () => goto('settings', button.dataset.tab)));
-$('mail-auth').addEventListener('change',mailMode);$('mail-security').addEventListener('change',()=>{if($('mail-security').value==='tls'&&$('mail-port').value==='587')$('mail-port').value=465;if($('mail-security').value==='starttls'&&$('mail-port').value==='465')$('mail-port').value=587;mailMode()});
-$('smtp-form').addEventListener('submit',async e=>{e.preventDefault();const c={host:$('mail-host').value.trim(),port:Number($('mail-port').value),security:$('mail-security').value,auth:$('mail-auth').value,username:$('mail-username').value.trim(),password:$('mail-password').value,from:$('mail-from').value.trim(),recipients:$('mail-recipients').value.trim(),caFile:$('mail-ca').value.trim(),hasSecret:false};try{await api('/api/settings/mail',{method:'PUT',body:JSON.stringify(c)});msg('smtp-msg','Настройки сохранены. Можно отправить тестовое письмо.');$('mail-password').value='';await loadMail()}catch(e){msg('smtp-msg',e.message,true)}});
-async function sendTest(endpoint){msg('smtp-msg','Отправляем письмо...');try{await api(endpoint,{method:'POST'});msg('smtp-msg','Письмо успешно отправлено. Проверьте входящие и папку «Спам».')}catch(e){msg('smtp-msg',e.message,true)}}
-$('test-email').addEventListener('click',()=>sendTest('/api/settings/mail/test'));
-$('test-alert').addEventListener('click',()=>sendTest('/api/alerts/test'));
+$('mail-auth').addEventListener('change', mailMode);
+$('mail-host').addEventListener('input', onMailDestinationChanged);
+$('mail-port').addEventListener('input', onMailDestinationChanged);
+$('mail-ca').addEventListener('input', resetMailCertificate);
+$('mail-security').addEventListener('change', () => {
+  if ($('mail-security').value === 'tls' && $('mail-port').value === '587') $('mail-port').value = 465;
+  if ($('mail-security').value === 'starttls' && $('mail-port').value === '465') $('mail-port').value = 587;
+  onMailDestinationChanged();
+  mailMode();
+});
+$('smtp-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/api/settings/mail', {method: 'PUT', body: JSON.stringify(mailForm())});
+    msg('smtp-msg', 'Настройки сохранены.');
+    await loadMail();
+  } catch (err) { msg('smtp-msg', err.message, true); }
+});
+async function sendTest(endpoint) {
+  if (!$('smtp-form').reportValidity()) return;
+  const buttons = [$('test-email'), $('test-alert')];
+  buttons.forEach(button => button.disabled = true);
+  msg('smtp-msg', 'Отправляем письмо…');
+  try {
+    await api(endpoint, {method: 'POST', body: JSON.stringify(mailForm())});
+    msg('smtp-msg', 'Письмо успешно отправлено. Проверьте входящие и папку «Спам».');
+  } catch (e) {
+    msg('smtp-msg', e.message, true);
+  } finally {
+    buttons.forEach(button => button.disabled = false);
+  }
+}
+$('test-email').addEventListener('click', () => sendTest('/api/settings/mail/test'));
+$('test-alert').addEventListener('click', () => sendTest('/api/alerts/test'));
 $('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');showAuth()}catch(err){msg('password-msg',err.message,true)}});
 
 

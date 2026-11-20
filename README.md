@@ -1,6 +1,6 @@
 # Storavix
 
-**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.17** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
+**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.18** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
 
 ![Storavix logo](internal/web/static/storavix-logo.webp)
 
