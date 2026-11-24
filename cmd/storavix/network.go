@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gosnmp/gosnmp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const networkInterval = 45 * time.Second
@@ -22,6 +24,8 @@ const networkInterval = 45 * time.Second
 type NetworkConfig struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
+	Kind               string `json:"kind,omitempty"`
+	SyslogExpected     bool   `json:"syslogExpected,omitempty"`
 	Host               string `json:"host"`
 	Method             string `json:"method"`
 	Port               uint16 `json:"port"`
@@ -35,6 +39,7 @@ type NetworkPort struct {
 	Index  int     `json:"index"`
 	Name   string  `json:"name"`
 	Status string  `json:"status"`
+	SpeedMbps uint64 `json:"speedMbps,omitempty"`
 	RxRate *uint64 `json:"rxRate,omitempty"`
 	TxRate *uint64 `json:"txRate,omitempty"`
 	rx     *uint64
@@ -44,6 +49,14 @@ type NetworkPort struct {
 type NetworkDevice struct {
 	ID                 string        `json:"id"`
 	Name               string        `json:"name"`
+	Kind               string        `json:"kind"`
+	SyslogExpected     bool          `json:"syslogExpected"`
+	SyslogLastAt       *time.Time    `json:"syslogLastAt,omitempty"`
+	Location           *DeviceLocation `json:"location,omitempty"`
+	Address            string        `json:"address,omitempty"`
+	UptimeSeconds      *uint64       `json:"uptimeSeconds,omitempty"`
+	RxRate             *uint64       `json:"rxRate,omitempty"`
+	TxRate             *uint64       `json:"txRate,omitempty"`
 	Host               string        `json:"host"`
 	Method             string        `json:"method"`
 	Port               uint16        `json:"port"`
@@ -93,6 +106,7 @@ func (s *server) getNetwork(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	devices := s.networkDevicesLocked(true)
 	s.mu.Unlock()
+	s.fillNetworkSyslogActivity(devices)
 	sendJSON(w, http.StatusOK, devices)
 }
 
@@ -100,32 +114,40 @@ func (s *server) networkDevicesLocked(includePorts bool) []NetworkDevice {
 	devices := make([]NetworkDevice, 0, len(s.state.Network))
 	now := time.Now()
 	for _, n := range s.state.Network {
-		d := NetworkDevice{ID: n.ID, Name: n.Name, Host: n.Host, Method: n.Method, Port: n.Port, Status: "pending", TemperatureOID: n.TemperatureOID, TemperatureDivisor: n.TemperatureDivisor}
+		kind := n.Kind
+		if kind == "" { kind = "switch" } // Existing devices remain switches after upgrade.
+		d := NetworkDevice{ID: n.ID, Name: n.Name, Kind: kind, Host: n.Host, Method: n.Method, Port: n.Port,
+			SyslogExpected:n.SyslogExpected, Status: "pending", TemperatureOID: n.TemperatureOID, TemperatureDivisor: n.TemperatureDivisor}
+		if point, exists := s.state.Locations["switch:"+n.ID]; exists {
+			location := point
+			d.Location = &location
+		}
 		if sample, ok := s.networkSamples[n.ID]; ok && sample.generation == n.Generation {
 			at := sample.at
 			d.CheckedAt = &at
 			d.Status, d.System, d.Message = sample.status, sample.system, sample.message
+			d.Address = sample.address
+			if sample.uptime != nil {
+				seconds := *sample.uptime / 100
+				d.UptimeSeconds = &seconds
+			}
 			d.Temperature = sample.temperature
 			if includePorts {
 				d.Ports = sample.ports
 			}
 			d.PortCount = len(sample.ports)
-			var rate uint64
-			var measured bool
+			var rate, rx, tx uint64
+			var measured, rxMeasured, txMeasured bool
 			for _, port := range sample.ports {
 				if port.Status == "up" {
 					d.UpPorts++
 				}
-				for _, value := range []*uint64{port.RxRate, port.TxRate} {
-					if value != nil {
-						rate += *value
-						measured = true
-					}
-				}
+				if port.RxRate != nil { rx+=*port.RxRate; rxMeasured=true; rate+=*port.RxRate; measured=true }
+				if port.TxRate != nil { tx+=*port.TxRate; txMeasured=true; rate+=*port.TxRate; measured=true }
 			}
-			if measured {
-				d.TotalRate = &rate
-			}
+			if measured { d.TotalRate = &rate }
+			if rxMeasured { d.RxRate = &rx }
+			if txMeasured { d.TxRate = &tx }
 			if now.Sub(at) > 3*networkInterval {
 				d.Status, d.Message = "stale", "Ожидание нового опроса"
 			}
@@ -139,6 +161,8 @@ func (s *server) networkDevicesLocked(includePorts bool) []NetworkDevice {
 func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Name               string `json:"name"`
+		Kind               string `json:"kind"`
+		SyslogExpected     bool `json:"syslogExpected"`
 		Host               string `json:"host"`
 		Method             string `json:"method"`
 		Port               uint16 `json:"port"`
@@ -151,6 +175,8 @@ func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Name, input.Host = strings.TrimSpace(input.Name), strings.TrimSpace(input.Host)
+	if input.Kind == "" { input.Kind = "switch" }
+	if input.Kind != "switch" && input.Kind != "router" { problem(w, 400, "Тип оборудования должен быть коммутатор или маршрутизатор"); return }
 	if input.Name == "" || len([]rune(input.Name)) > 64 || !validNetworkHost(input.Host) || input.Port == 0 ||
 		(input.Method != "tcp" && input.Method != "snmp") || len(input.Community) > 128 {
 		problem(w, http.StatusBadRequest, "Проверьте имя, адрес, способ опроса и порт")
@@ -191,7 +217,8 @@ func (s *server) putNetworkDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		id = hex.EncodeToString(randomBytes(12))
 	}
-	n := NetworkConfig{ID: id, Name: input.Name, Host: input.Host, Method: input.Method, Port: input.Port, Generation: hex.EncodeToString(randomBytes(12))}
+	n := NetworkConfig{ID: id, Name: input.Name, Kind: input.Kind, SyslogExpected:input.SyslogExpected, Host: input.Host,
+		Method: input.Method, Port: input.Port, Generation: hex.EncodeToString(randomBytes(12))}
 	n.TemperatureOID, n.TemperatureDivisor = temperatureOID, input.TemperatureDivisor
 	if n.Method == "snmp" {
 		switch {
@@ -365,6 +392,8 @@ const (
 	sysNameOID   = ".1.3.6.1.2.1.1.5.0"
 	sysUpTimeOID = ".1.3.6.1.2.1.1.3.0"
 	ifNameOID    = ".1.3.6.1.2.1.31.1.1.1.1"
+	ifHighSpeedOID = ".1.3.6.1.2.1.31.1.1.1.15"
+	ifSpeedOID = ".1.3.6.1.2.1.2.2.1.5"
 	ifDescrOID   = ".1.3.6.1.2.1.2.2.1.2"
 	ifAdminOID   = ".1.3.6.1.2.1.2.2.1.7"
 	ifOperOID    = ".1.3.6.1.2.1.2.2.1.8"
@@ -479,6 +508,24 @@ func pollSNMPPorts(client *gosnmp.GoSNMP) ([]NetworkPort, bool) {
 			complete = false
 		}
 	}
+// Link speeds are optional: older hardware may not implement ifHighSpeed.
+	// A missing speed OID must not invalidate a successful interface poll.
+	for _, oid := range []string{ifHighSpeedOID, ifSpeedOID} {
+		_ = client.BulkWalk(oid, func(p gosnmp.SnmpPDU) error {
+			index, err := strconv.Atoi(strings.TrimPrefix(p.Name, oid+"."))
+			if err != nil { return nil }
+			port := ports[index]
+			if port == nil { return nil }
+			raw := gosnmp.ToBigInt(p.Value)
+			if raw == nil || raw.Sign() <= 0 { return nil }
+			if oid == ifHighSpeedOID {
+				port.SpeedMbps = raw.Uint64()
+			} else if port.SpeedMbps == 0 {
+				port.SpeedMbps = raw.Uint64() / 1000000
+			}
+			return nil
+		})
+	}
 	out := make([]NetworkPort, 0, len(ports))
 	for _, port := range ports {
 		if admin[port.Index] == 2 {
@@ -515,6 +562,45 @@ func addPortRates(current *networkSample, previous networkSample) {
 		old, ok := oldPorts[p.Index]
 		if ok && old.Name == p.Name {
 			p.RxRate, p.TxRate = rate(p.rx, old.rx), rate(p.tx, old.tx)
+		}
+	}
+}
+
+// fillNetworkSyslogActivity reports evidence of received Syslog messages.
+// It never claims Syslog is configured remotely based on absence of messages.
+// The journal scan is bounded and occurs outside s.mu.
+func (s *server) fillNetworkSyslogActivity(devices []NetworkDevice) {
+	if s.syslog == nil || len(devices) == 0 { return }
+	latest := make(map[string]time.Time)
+	err := s.syslog.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(syslogBucket)
+		if bucket == nil { return nil }
+		cursor := bucket.Cursor()
+		seen := 0
+		for key, value := cursor.Last(); key != nil && seen < 5000; key, value = cursor.Prev() {
+			seen++
+			var item SyslogEntry
+			if json.Unmarshal(value, &item) != nil { continue }
+			for _, source := range []string{item.Source, item.Host} {
+				name := strings.ToLower(strings.TrimSpace(source))
+				if name != "" {
+					if old, found := latest[name]; !found || old.Before(item.ReceivedAt) {
+						latest[name] = item.ReceivedAt
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil { return }
+	for i := range devices {
+		d := &devices[i]
+		for _, name := range []string{d.Host, d.Address, d.System, d.Name} {
+			if when, found := latest[strings.ToLower(strings.TrimSpace(name))]; found &&
+				(d.SyslogLastAt == nil || d.SyslogLastAt.Before(when)) {
+				at := when
+				d.SyslogLastAt = &at
+			}
 		}
 	}
 }
