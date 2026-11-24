@@ -35,6 +35,7 @@ func TestSNMPSwitchActivity(t *testing.T) {
 	if got := sample.ports[0].RxRate; got == nil || *got != 500 {
 		t.Fatalf("unexpected counter rate: %v", got)
 	}
+	if sample.ports[0].SpeedMbps != 1000 {t.Fatalf("missing SNMP link speed: %+v",sample.ports[0])}
 	if got := sample.ports[0].TxRate; got == nil || *got != 250 {
 		t.Fatalf("unexpected counter rate: %v", got)
 	}
@@ -44,6 +45,7 @@ func serveSNMPFixture(conn *net.UDPConn) {
 	client := &gosnmp.GoSNMP{Version: gosnmp.Version2c, Community: "test-read-only"}
 	rows := map[string][]gosnmp.SnmpPDU{
 		ifNameOID: {{Name: ifNameOID + ".1", Type: gosnmp.OctetString, Value: []byte("Gi1")}},
+		ifHighSpeedOID: {{Name: ifHighSpeedOID + ".1", Type: gosnmp.Gauge32, Value: uint32(1000)}},
 	}
 	for i := 1; i <= 2; i++ {
 		admin := 1
@@ -87,4 +89,36 @@ func serveSNMPFixture(conn *net.UDPConn) {
 			_, _ = conn.WriteToUDP(packet, peer)
 		}
 	}
+}
+
+func TestNetworkEquipmentCardSummaryAndLegacyType(t *testing.T) {
+	now:=time.Now().UTC()
+	up:=uint64(123450)
+	rx,tx:=uint64(750),uint64(250)
+	s:=&server{
+		state: State{
+			Network: []NetworkConfig{
+				{ID:"router",Kind:"router",SyslogExpected:true,Name:"Core-R1",Host:"192.0.2.1",Method:"snmp",Generation:"g"},
+				{ID:"old",Name:"Old switch",Host:"192.0.2.2",Method:"tcp",Generation:"o"},
+			},
+			Locations: map[string]DeviceLocation{"switch:router":{Lat:55,Lon:37,Address:"Тестовая площадка"}},
+		},
+		networkSamples: map[string]networkSample{
+			"router":{generation:"g",status:"up",at:now,uptime:&up,address:"192.0.2.1",
+				ports:[]NetworkPort{{Index:1,Name:"Ethernet1",Status:"up",SpeedMbps:10000,RxRate:&rx,TxRate:&tx}}},
+		},
+	}
+	devices:=s.networkDevicesLocked(true)
+	if len(devices)!=2 {t.Fatalf("want two devices, got %d",len(devices))}
+	var router,old NetworkDevice
+	for _,d:=range devices {if d.ID=="router"{router=d}else if d.ID=="old"{old=d}}
+	if router.Kind!="router"||!router.SyslogExpected||router.Location==nil||router.Location.Address!="Тестовая площадка"{
+		t.Fatalf("router metadata lost: %+v",router)
+	}
+	if router.UptimeSeconds==nil||*router.UptimeSeconds!=1234||router.UpPorts!=1||router.PortCount!=1||
+		router.RxRate==nil||*router.RxRate!=750||router.TxRate==nil||*router.TxRate!=250||
+		router.TotalRate==nil||*router.TotalRate!=1000||router.Ports[0].SpeedMbps!=10000{
+		t.Fatalf("incorrect equipment telemetry: %+v",router)
+	}
+	if old.Kind!="switch"{t.Fatalf("legacy device must remain a switch: %+v",old)}
 }

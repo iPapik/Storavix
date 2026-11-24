@@ -1,7 +1,7 @@
 'use strict';
 
 const widgetTypes = {
-  raid: ['Состояние RAID', 'drives', 'storage'],
+  raid: ['Состояние RAID', 'drives', 'servers'],
   network: ['Сетевое оборудование', 'network', 'network'],
   geomap: ['Геокарта оборудования', 'network', ''],
   problems: ['Активные алармы', 'bell', 'alerts'],
