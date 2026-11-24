@@ -337,43 +337,76 @@ async function loadNetwork() {
   }
 }
 
-function renderNetwork() {
-  const root = $('network-devices');
-  const open = new Set([...root.querySelectorAll('details[open]')].map(node => node.dataset.device));
-  const selected = currentRoute.id;
-  if (selected && root.dataset.selected !== selected) open.add(selected);
-  root.dataset.selected = selected;
-  root.replaceChildren();
-  addList(root, networkDevices, device => {
-    const panel = document.createElement('details');
-    panel.className = 'panel network-device';
-    panel.dataset.device = device.id;
-    panel.open = open.has(device.id);
-    const summary = document.createElement('summary');
-    summary.append(makeText('strong', device.name), makeText('span', device.host, 'muted'), statusTag(device.status));
-    panel.append(summary);
-    const details = document.createElement('div');
-    details.className = 'network-device-details';
-    const proto = device.method === 'snmp' ? 'SNMP v2c · UDP ' : 'TCP ';
-    details.append(makeText('p', [device.system, proto + device.port,
-      device.checkedAt && ('Опрос ' + new Date(device.checkedAt).toLocaleString('ru-RU'))].filter(Boolean).join(' · '), 'muted'));
-    if (device.temperature != null && device.status === 'up') details.append(makeText('p', 'Температура: ' + fmtTemperature(device.temperature), 'muted'));
-    if (device.message) details.append(makeText('p', device.message, 'muted'));
-    if (device.ports?.length) {
-      details.append(makeText('p', device.status === 'stale' ? 'Последний полученный снимок интерфейсов' : portSummary(device), 'muted'), dataTable(
-        ['Интерфейс', 'Состояние', 'Приём', 'Передача'],
-        device.ports.map(port => [port.name, statusTag(port.status),
-          device.status === 'up' ? fmtRate(port.rxRate) : '—', device.status === 'up' ? fmtRate(port.txRate) : '—'])));
-    }
-    const controls = document.createElement('div');
-    controls.className = 'toolbar-actions';
-    if (device.method === 'snmp') controls.append(routeLink('События SNMP', 'snmp-events', device.id));
-    if (canManageDevices()) controls.append(action('Изменить', () => editNetwork(device), 'secondary small'),
-      action('Удалить', () => removeNetwork(device), 'text-button'));
-    details.append(controls);
-    panel.append(details);
-    return panel;
-  }, 'Коммутаторы пока не добавлены.');
+function equipmentType(d){return d.kind==='router'?'Маршрутизатор':'Коммутатор'}
+function equipmentLocation(d){return !d.location?'Не указано':(d.location.address||d.location.lat.toFixed(5)+', '+d.location.lon.toFixed(5))}
+function fmtLinkSpeed(value){return !value?'—':value>=1000?(value/1000).toLocaleString('ru-RU',{maximumFractionDigits:2})+' Гбит/с':value+' Мбит/с'}
+function networkStatus(d){return d.status==='up'?['online','Онлайн']:d.status==='down'?['offline','Нет связи']:d.status==='stale'?['warn','Данные устарели']:['warn','Ожидание опроса']}
+function snmpStatus(d){return d.method==='snmp'?(d.status==='up'?'Работает':'Настроен, нет ответа'):'Не настроен'}
+function syslogStatus(d){return d.syslogLastAt?'Получены: '+new Date(d.syslogLastAt).toLocaleString('ru-RU'):d.syslogExpected?'Ожидаются сообщения':'Не указан'}
+function makeNetworkCard(d){
+  const [state,label]=networkStatus(d),card=document.createElement('a');
+  card.className='system-card network-system-card';card.href='#device/'+d.id;card.setAttribute('aria-label','Подробнее об оборудовании '+d.name);
+  const header=document.createElement('div');header.className='system-head';
+  header.append(makeText('i','','system-dot '+state),makeText('b',d.name),makeText('span',label,'system-state state-text '+state));
+  const body=document.createElement('div');body.className='system-metrics';
+  const speed=Math.max(0,...(d.ports||[]).filter(p=>p.status==='up').map(p=>p.speedMbps||0));
+  body.append(
+    metricRow('network','Тип:',equipmentType(d)),metricRow('network','IP / DNS:',d.host),
+    metricRow('services','Порты:',d.portCount?d.upPorts+' / '+d.portCount:'—'),
+    metricRow('activity','Скорость:',fmtLinkSpeed(speed)),
+    metricRow('network','Трафик:',d.status==='up'?fmtRate(d.totalRate):'—'),
+    metricRow('drive','Приём:',d.status==='up'?fmtRate(d.rxRate):'—'),
+    metricRow('drive','Передача:',d.status==='up'?fmtRate(d.txRate):'—'),
+    metricRow('radio','SNMP:',snmpStatus(d)),metricRow('logs','Syslog:',syslogStatus(d)),
+    metricRow('clock','Работает:',d.status==='up'?fmtUptime(d.uptimeSeconds):'—'),
+    metricRow('network','Место:',equipmentLocation(d))
+  );
+  card.append(header,body);return card;
+}
+function renderNetwork(){
+  const root=$('network-devices'),query=$('network-filter').value.trim().toLowerCase();
+  const devices=networkDevices.filter(d=>[d.name,d.host,d.kind,d.system,d.location?.address].some(v=>typeof v==='string'&&v.toLowerCase().includes(query)));
+  root.classList.remove('large-layout','standard-layout','compact-layout','list-layout');root.classList.add(networkLayout+'-layout');
+  root.replaceChildren(...(devices.length?devices.map(makeNetworkCard):[emptyNote(networkDevices.length?'По фильтру ничего не найдено.':'Добавьте маршрутизатор или коммутатор для мониторинга.')]));
+}
+function renderNetworkDetail(){
+  if(currentRoute.page!=='device')return;
+  const root=$('network-detail'),d=networkDevices.find(device=>device.id===currentRoute.id);
+  if(!d){root.replaceChildren(emptyNote('Устройство не найдено.'));return;}
+  setPageTitle(d.name);
+  const [state,label]=networkStatus(d),section=makeSection('Состояние оборудования');
+  const tiles=document.createElement('div');tiles.className='server-tiles';
+  for(const [k,v] of [
+    ['Состояние',label],['Активных портов',d.portCount?d.upPorts+' / '+d.portCount:'—'],
+    ['Входящий трафик',d.status==='up'?fmtRate(d.rxRate):'—'],
+    ['Исходящий трафик',d.status==='up'?fmtRate(d.txRate):'—']
+  ]){const tile=document.createElement('div');tile.append(makeText('span',k,'muted'),makeText('strong',v));tiles.append(tile);}
+  section.append(tiles);
+  for(const [k,v] of [
+    ['Тип',equipmentType(d)],['Имя оборудования',d.name],['IP / DNS',d.host],
+    ['SNMP sysName',d.system||'—'],['Состояние',label],['Метод опроса',d.method==='snmp'?'SNMP v2c':'TCP-порт'],
+    ['SNMP',snmpStatus(d)],['Syslog',syslogStatus(d)],
+    ['Время работы',d.status==='up'?fmtUptime(d.uptimeSeconds):'—'],
+    ['Температура',d.temperature!=null&&d.status==='up'?fmtTemperature(d.temperature):'—'],
+    ['Последний опрос',d.checkedAt?new Date(d.checkedAt).toLocaleString('ru-RU'):'—'],
+    ['Местоположение',equipmentLocation(d)],
+    ['Координаты',d.location?d.location.lat+', '+d.location.lon:'—'],
+    ['Общий трафик',d.status==='up'?fmtRate(d.totalRate):'—']
+  ])detailRow(section,k,v,k==='Состояние'?'state-text '+state:'');
+  if(d.message)section.append(makeText('p',d.message,'muted'));
+  const actions=document.createElement('div');actions.className='toolbar-actions network-detail-actions';
+  if(d.method==='snmp')actions.append(routeLink('Журнал SNMP','snmp-events',d.id));
+  if(hasFullAccess())actions.append(routeLink('Журнал Syslog','syslog'));
+  if(canManageDevices())actions.append(action('Изменить',()=>{goto('network');editNetwork(d)},'secondary small'),
+    action('Удалить',()=>removeNetwork(d),'secondary small'));
+  section.append(actions);
+  const ports=makeSection('Порты и скорость интерфейсов');
+  if(d.ports?.length){
+    ports.append(dataTable(['Порт','Состояние','Скорость линка','Приём','Передача'],
+      d.ports.map(p=>[p.name,statusTag(p.status),fmtLinkSpeed(p.speedMbps),
+        d.status==='up'?fmtRate(p.rxRate):'—',d.status==='up'?fmtRate(p.txRate):'—'])));
+  }else ports.append(emptyNote(d.method==='snmp'?'Оборудование ещё не отдало список портов по SNMP.':'При TCP-проверке невозможно собрать состояние интерфейсов. Включите SNMP.'));
+  root.replaceChildren(section,ports);
 }
 
 function editNetwork(device) {
