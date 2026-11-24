@@ -227,7 +227,11 @@ func limitChange(key, detail string, value float64, limit, hysteresis int, previ
 func (s *server) observeAgentLocked(r telemetry.Report) {
 	key := "server:" + r.ID
 	prior := s.state.Monitor[key].Conditions
-	changes := []monitorChange{{"availability", "up", "server_up", "Получен отчёт агента.", false}}
+	availabilityDetail := "Получен отчёт агента."
+	if previous := prior["availability"]; previous.Status == "down" && !previous.Since.IsZero() {
+		availabilityDetail = fmt.Sprintf("Получен отчёт агента. Отсутствие связи после срабатывания тревоги: %s.", r.ReceivedAt.Sub(previous.Since).Round(time.Second))
+	}
+	changes := []monitorChange{{"availability", "up", "server_up", availabilityDetail, false}}
 	if r.Temperature != nil {
 		limit := serverTempLimit(s.state.Mail)
 		detail := fmt.Sprintf("Температура %.1f °C · порог %d °C.", *r.Temperature, limit)
@@ -312,7 +316,9 @@ func (s *server) scanOffline(now time.Time) {
 	for _, r := range s.agents {
 		if now.Sub(r.ReceivedAt) > agentOfflineAfter {
 			s.applyMonitorLocked("server:"+r.ID, "", r.Hostname, now.UTC(), []monitorChange{
-				{"availability", "down", "server_down", "Агент не передаёт данные больше двух минут.", true},
+				{"availability", "down", "server_down",
+					fmt.Sprintf("Отчёты не поступают %s (порог %s). Последний полученный отчёт: %s UTC. Это не подтверждение выключения Windows.",
+						now.Sub(r.ReceivedAt).Round(time.Second), agentOfflineAfter, r.ReceivedAt.UTC().Format("02.01.2006 15:04:05")), true},
 			})
 		}
 	}

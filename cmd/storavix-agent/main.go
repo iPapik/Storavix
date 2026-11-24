@@ -130,8 +130,10 @@ func main() {
 	}
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
 	osName := collector.OSName()
-	var prev collector.Snapshot
-	var last time.Time
+	// The heartbeat must never be blocked by a slow CIM/PowerShell host-metrics
+	// query. Host telemetry is collected independently and reused only while fresh.
+	hostMetrics := newHostSampler(collector.Read)
+	hostMetrics.start()
 	type hardwareSample struct {
 		inventory   collector.Inventory
 		temperature *float64
@@ -142,7 +144,12 @@ func main() {
 	scan := func() { storage <- hardwareSample{collector.ReadStorage(), collector.Temperature()} }
 	go scan()
 	for {
-		r, current := collector.Read()
+		if *once {
+			// For a manual one-shot probe, try to include host metrics but do
+			// not wait forever for a stuck Windows CIM provider.
+			hostMetrics.waitForFirst(20 * time.Second)
+		}
+		r := hostMetrics.current(time.Now())
 		select {
 		case result := <-storage:
 			hardware = &result
@@ -166,23 +173,6 @@ func main() {
 		r.OS = runtime.GOOS
 		r.OSName = osName
 		r.Version = telemetry.AgentVersion
-		now := time.Now()
-		// Network and CPU counters need consecutive samples; the first sample is unknown, never fake 0.
-		if !last.IsZero() {
-			elapsed := now.Sub(last).Seconds()
-			if elapsed > 0 && current.NetValid && prev.NetValid && current.NetBytes >= prev.NetBytes {
-				x := float64(current.NetBytes-prev.NetBytes) / elapsed
-				r.NetworkBytesPerSec = &x
-			}
-			if runtime.GOOS == "linux" && current.CPUValid && prev.CPUValid && current.CPUTotal > prev.CPUTotal && current.CPUIdle >= prev.CPUIdle {
-				x := 100 * (1 - float64(current.CPUIdle-prev.CPUIdle)/float64(current.CPUTotal-prev.CPUTotal))
-				if x >= 0 && x <= 100 {
-					r.CPUPercent = &x
-				}
-			}
-		}
-		prev = current
-		last = now
 		e = send(client, normalizedURL, token, r)
 		if e != nil {
 			log.Printf("report failed: %v", e)
