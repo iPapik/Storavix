@@ -2,7 +2,7 @@
 
 const widgetTypes = {
   raid: ['Состояние RAID', 'drives', 'storage'],
-  network: ['Коммутаторы', 'network', 'network'],
+  network: ['Сетевое оборудование', 'network', 'network'],
   geomap: ['Геокарта оборудования', 'network', ''],
   problems: ['Активные алармы', 'bell', 'alerts'],
   events: ['Журнал уведомлений', 'logs', 'alerts'],
@@ -22,6 +22,9 @@ let monitoringPending = -1;
 let networkPending = -1;
 let networkDevices = [];
 let networkEditing = '';
+let networkLayout = 'large';
+try {const stored=localStorage.getItem('storavix.network.layout');if(systemsLayoutModes.includes(stored))networkLayout=stored;}catch(_){}
+$('network-layout').value=networkLayout;
 
 function cloneJSON(value) {
   return JSON.parse(JSON.stringify(value));
@@ -63,7 +66,7 @@ function problemNode(problem) {
   const row = document.createElement('div');
   row.className = 'widget-list-row';
   const info = document.createElement('div');
-  info.append(routeLink(problem.source, problem.kind === 'server' ? 'server' : 'network', problem.ref),
+  info.append(routeLink(problem.source, problem.kind === 'server' ? 'server' : 'device', problem.ref),
     makeText('small', problem.message, 'muted'));
   if (problem.occurredAt) {
     const date = makeText('time', new Date(problem.occurredAt).toLocaleString('ru-RU'), 'muted problem-date');
@@ -140,7 +143,7 @@ function action(label, handler, className = 'text-button') {
 function renderOverview() {
   const stats = [
     ...(hasServerAccess() ? [['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers', 'servers']] : []),
-    ...(hasNetworkAccess() ? [['Коммутаторы', monitoring.network.length, 'network', 'network']] : []),
+    ...(hasNetworkAccess() ? [['Маршрутизаторы и коммутаторы', monitoring.network.length, 'network', 'network']] : []),
     ['Активные алармы', monitoring.problems.length, 'bell', 'alerts']
   ];
   $('overview-stats').classList.toggle('stats-servers-only', stats.length === 2);
@@ -231,7 +234,7 @@ function renderWidget(panel, widget) {
         const row = document.createElement('div');
         row.className = 'widget-list-row';
         const info = document.createElement('div');
-        info.append(routeLink(device.name, 'network', device.id), makeText('small',
+        info.append(routeLink(device.name, 'device', device.id), makeText('small',
           device.status === 'up' ? portSummary(device) : device.host, 'muted'));
         row.append(info, statusTag(device.status));
         return row;
@@ -326,6 +329,7 @@ async function loadNetwork() {
   try {
     networkDevices = await api('/api/network');
     if (currentRoute.page === 'network') renderNetwork();
+    if (currentRoute.page === 'device') renderNetworkDetail();
   } catch (error) {
     if (epoch === sessionEpoch) msg('network-msg', error.message, true);
   } finally {
@@ -375,6 +379,8 @@ function renderNetwork() {
 function editNetwork(device) {
   networkEditing = device?.id || 'new';
   $('network-name').value = device?.name || '';
+  $('network-kind').value = device?.kind || 'switch';
+  $('network-syslog').checked = !!device?.syslogExpected;
   $('network-host').value = device?.host || '';
   $('network-method').value = device?.method || 'snmp';
   $('network-port').value = device?.port || 161;
@@ -402,6 +408,7 @@ async function removeNetwork(device) {
   try {
     await api('/api/network/' + device.id, {method: 'DELETE'});
     if (networkEditing === device.id) $('network-form').classList.add('hidden');
+    if (currentRoute.page === 'device') goto('network');
     await loadNetwork();
   } catch (error) {
     msg('network-msg', error.message, true);
@@ -409,6 +416,13 @@ async function removeNetwork(device) {
 }
 
 $('network-add').addEventListener('click', () => editNetwork());
+$('device-refresh').addEventListener('click',loadNetwork);
+$('network-filter').addEventListener('input',renderNetwork);
+$('network-layout').addEventListener('change',()=>{
+  networkLayout=systemsLayoutModes.includes($('network-layout').value)?$('network-layout').value:'large';
+  try{localStorage.setItem('storavix.network.layout',networkLayout)}catch(_){}
+  renderNetwork();
+});
 $('network-cancel').addEventListener('click', () => {
   $('network-form').classList.add('hidden');
   $('network-community').value = '';
@@ -426,7 +440,8 @@ $('network-form').addEventListener('submit', async event => {
   try {
     const method = $('network-method').value;
     const device = {
-      name: $('network-name').value.trim(), host: $('network-host').value.trim(), method,
+      name: $('network-name').value.trim(), kind:$('network-kind').value,
+      syslogExpected:$('network-syslog').checked, host: $('network-host').value.trim(), method,
       port: Number($('network-port').value), community: method === 'snmp' ? $('network-community').value : '',
       temperatureOID: method === 'snmp' ? $('network-temp-oid').value.trim() : '',
       temperatureDivisor: method === 'snmp' ? Number($('network-temp-divisor').value) : 0
@@ -435,7 +450,7 @@ $('network-form').addEventListener('submit', async event => {
     $('network-form').classList.add('hidden');
     $('network-community').value = '';
     msg('network-msg', 'Настройки сохранены. Ожидаем первый опрос.');
-    goto('network', result.id);
+    goto('device', result.id);
   } catch (error) {
     msg('network-msg', error.message, true);
   } finally {
@@ -459,8 +474,8 @@ setInterval(() => {
   if (page === 'snmp-events') refreshSNMPJournal();
   if (page === 'syslog' && !syslogCursor) loadSyslogJournal(0, true);
   if (page === 'server') loadServer(id);
-  if (page === 'servers' || page === 'storage') loadSystems();
-  if (page === 'network') loadNetwork();
+  if (page === 'servers') loadSystems();
+  if (page === 'network' || page === 'device') loadNetwork();
 }, 15000);
 
 (async function boot() {
