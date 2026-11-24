@@ -48,7 +48,11 @@ function applyWidgetLayout(widgets, positions) {
 }
 
 function settleWidgetDraft() {
-  applyWidgetLayout(dashboardDraft.widgets, layoutWidgets(dashboardDraft.widgets, true));
+  // Follow the *new* coordinates, not the original widget array order.
+  // Otherwise a dragged card jumps back on mouse release.
+  const ordered=orderedWidgets(dashboardDraft.widgets);
+  applyWidgetLayout(ordered,packWidgets(ordered,true));
+  dashboardDraft.widgets=ordered;
 }
 
 function refreshWidgetHandle(widget, sizing) {
@@ -95,40 +99,66 @@ function widgetHandle(widget, panel, sizing) {
       if (target < 0 || target >= sorted.length) return;
       [sorted[index], sorted[target]] = [sorted[target], sorted[index]];
       applyWidgetLayout(sorted, packWidgets(sorted, true));
+      dashboardDraft.widgets=sorted;
     }
     refreshWidgetHandle(widget, sizing);
     msg('dashboard-msg', 'Столбец ' + (widget.layout.x + 1) + ', строка ' + (widget.layout.y + 1)
       + ' · ' + widget.layout.w + ' × ' + widget.layout.h);
   });
-  handle.addEventListener('pointerdown', event => {
+  // Moving a widget works from the whole header. Resize remains on the
+  // bottom-right grip. Use a GPU transform while dragging and commit the grid
+  // coordinates once, on release, to avoid jittery reflows.
+  const surface = sizing ? handle : panel;
+  const begin = event => {
     if (!event.isPrimary || event.button !== 0 || !matchMedia('(min-width: 851px)').matches) return;
+    if (!sizing) {
+      if (!event.target.closest('.dashboard-widget > header')) return;
+      if (event.target.closest('a, input, select, .widget-remove')) return;
+    }
     event.preventDefault();
-    const initial = {...widget.layout};
-    const grid = $('widget-grid');
-    const gap = Number.parseFloat(getComputedStyle(grid).columnGap);
-    const rowStep = Number.parseFloat(getComputedStyle(grid).gridAutoRows) + gap;
-    const colStep = (grid.clientWidth + gap) / widgetColumns;
-    const start = {x: event.clientX, y: event.clientY, scroll: window.scrollY};
-    handle.setPointerCapture(event.pointerId);
+    const initial={...widget.layout};
+    const grid=$('widget-grid');
+    const gap=Number.parseFloat(getComputedStyle(grid).columnGap)||0;
+    const rowStep=(Number.parseFloat(getComputedStyle(grid).gridAutoRows)||62)+gap;
+    const colStep=(grid.clientWidth+gap)/widgetColumns;
+    const startX=event.clientX, startY=event.clientY;
+    const startScroll=window.scrollY;
+    let lastX=startX,lastY=startY,frame=0;
+    const position = () => ({
+      dx:lastX-startX,
+      dy:lastY-startY+window.scrollY-startScroll
+    });
+    surface.setPointerCapture(event.pointerId);
     panel.classList.add('widget-dragging');
     msg('dashboard-msg');
-    const move = e => {
-      if (e.pointerId !== event.pointerId) return;
-      apply(Math.round((e.clientX - start.x) / colStep),
-        Math.round((e.clientY - start.y + window.scrollY - start.scroll) / rowStep), initial);
-      const direction = e.clientY > window.innerHeight - 52 ? 1 : e.clientY < 52 ? -1 : 0;
-      if (direction) window.scrollBy(0, direction * 40);
-    };
-    const done = () => {
-      panel.classList.remove('widget-dragging');
-      handle.removeEventListener('pointermove', move);
-      if (dashboardDraft) {
-        settleWidgetDraft();
-        refreshWidgetHandle(widget, sizing);
+    const preview=()=>{
+      frame=0;
+      const {dx,dy}=position();
+      if(sizing) {
+        apply(Math.round(dx/colStep),Math.round(dy/rowStep),initial);
+      } else {
+        panel.style.transform='translate3d('+dx+'px,'+dy+'px,0)';
       }
     };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('lostpointercapture', done, {once: true});
-  });
+    const move=e=>{
+      if(e.pointerId!==event.pointerId)return;
+      lastX=e.clientX;lastY=e.clientY;
+      if(!frame)frame=requestAnimationFrame(preview);
+    };
+    const done=()=>{
+      if(frame)cancelAnimationFrame(frame);
+      const {dx,dy}=position();
+      panel.style.transform='';
+      apply(Math.round(dx/colStep),Math.round(dy/rowStep),initial);
+      panel.classList.remove('widget-dragging');
+      surface.removeEventListener('pointermove',move);
+      surface.removeEventListener('lostpointercapture',done);
+      if(dashboardDraft){settleWidgetDraft();refreshWidgetHandle(widget,sizing)}
+    };
+    surface.addEventListener('pointermove',move);
+    surface.addEventListener('lostpointercapture',done,{once:true});
+  };
+  surface.addEventListener('pointerdown',begin);
+
   return handle;
 }
