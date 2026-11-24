@@ -339,3 +339,5 @@ label.check-field input[type="checkbox"]{flex:none}
  .network-toolbar .systems-actions input,.network-toolbar .systems-actions select{width:100%}
  .network-card-grid .network-system-card .system-metric{grid-template-columns:20px 87px minmax(0,1fr)}
 }
+
+.sidebar nav button[data-page="network"]{white-space:normal;text-align:left;line-height:1.3;font-size:12px;min-height:48px}
