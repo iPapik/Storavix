@@ -292,3 +292,50 @@ label.check-field input[type="checkbox"]{flex:none}
 #mail-cert-preview{margin-top:12px;padding:12px;border:1px solid #444;border-radius:8px;overflow-wrap:anywhere}
 #mail-cert-preview .detail-row strong{min-width:0;text-align:right}
 #mail-cert-preview p{margin:10px 0;font-size:13px}
+
+/* v0.2.21: responsive network inventory, server-style cards and precise widget editor */
+.network-toolbar{align-items:flex-start;gap:18px}
+.network-toolbar .systems-actions{flex-wrap:wrap;justify-content:flex-end;gap:10px}
+.network-toolbar .systems-actions .text-link{white-space:nowrap}
+.network-card-grid{margin-top:18px;align-content:start}
+.network-card-grid .network-system-card{height:100%}
+.network-card-grid .network-system-card .system-head{gap:8px}
+.network-card-grid .network-system-card .system-head b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.network-card-grid .network-system-card .system-metric{grid-template-columns:20px minmax(75px,105px) minmax(0,1fr);gap:7px}
+.network-card-grid .network-system-card .system-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.network-card-grid .empty-note{grid-column:1/-1;padding:24px}
+.network-syslog-expected{grid-column:1/-1;flex-direction:row;align-items:center;gap:10px}
+.network-syslog-expected input{width:auto}
+.network-detail-actions{margin-top:20px;align-items:center}
+#network-detail .server-tiles{margin-bottom:16px}
+#network-detail .storage-table-wrap{overflow-x:auto}
+#network-detail .storage-table{min-width:670px}
+.system-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.widget-grid-editing .dashboard-widget>header{cursor:grab;touch-action:none;user-select:none}
+.widget-grid-editing .dashboard-widget.widget-dragging>header{cursor:grabbing}
+.widget-grid-editing .dashboard-widget.widget-dragging{z-index:30;will-change:transform;box-shadow:0 16px 35px #0009;border-color:#60c993}
+.widget-grid-editing .dashboard-widget .widget-move{min-width:34px;min-height:34px;cursor:grab}
+.widget-grid-editing .dashboard-widget .widget-grip{min-width:42px;min-height:42px;display:flex;align-items:center;justify-content:center;font-size:19px;bottom:7px;right:7px}
+.widget-grid-editing .dashboard-widget{transition:border-color .1s,box-shadow .1s}
+@media(min-width:1450px){
+ .systems-grid.network-card-grid.large-layout{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .systems-grid.network-card-grid.standard-layout{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+ .systems-grid.network-card-grid.compact-layout{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ .systems-grid.network-card-grid.list-layout{grid-template-columns:1fr!important}
+}
+@media(min-width:900px) and (max-width:1449px){
+ .systems-grid.network-card-grid.large-layout{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .systems-grid.network-card-grid.standard-layout,.systems-grid.network-card-grid.compact-layout{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .systems-grid.network-card-grid.list-layout{grid-template-columns:1fr!important}
+}
+@media(max-width:899px){
+ .systems-grid.network-card-grid{grid-template-columns:1fr!important}
+ .network-toolbar .systems-actions{justify-content:flex-start}
+}
+@media(min-width:900px){
+ .systems-grid.network-card-grid.list-layout .system-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+}
+@media(max-width:620px){
+ .network-toolbar .systems-actions input,.network-toolbar .systems-actions select{width:100%}
+ .network-card-grid .network-system-card .system-metric{grid-template-columns:20px 87px minmax(0,1fr)}
+}

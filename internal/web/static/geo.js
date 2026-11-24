@@ -61,7 +61,7 @@ function geoMap(id) {
       popup.className = 'geo-popup';
       for (const target of list) {
         const item = document.createElement('div');
-        item.append(routeLink(target.name, target.kind === 'server' ? 'server' : 'network', target.id),
+        item.append(routeLink(target.name, target.kind === 'server' ? 'server' : 'device', target.id),
           statusTag(target.status), makeText('small', target.point.address || lat.toFixed(5) + ', ' + lon.toFixed(5)));
         if (view.editPoint) item.append(action('Редактировать метку', () => view.editPoint(target.kind + ':' + target.id)));
         popup.append(item);

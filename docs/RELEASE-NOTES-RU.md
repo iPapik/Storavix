@@ -1,13 +1,12 @@
-# Storavix v0.2.20 — heartbeat independent of Windows CIM collection
+# Storavix v0.2.21 — серверы и отдельная сетка сетевого оборудования
 
-## Incident SRV55 (2026-11-24)
-- Agent log contained **no** report submission failures, but a 12-minute 8-second gap between successful reports at 05:25:36 and 05:37:44 UTC (plus other long gaps on earlier days).
-- The Windows agent previously called collector.Read synchronously before sending every report; a stalled CIM/PowerShell query or scheduling pause could prevent it from contacting Storavix, without producing `report failed`.
-- Fixed: host metrics are polled independently of the heartbeat; at most one worker runs. The agent sends a presence report every configured interval even while a host metrics call is slow or stuck. Collected metrics expire after 90 seconds instead of being replayed indefinitely as fresh.
-- Added diagnostic log messages for pending/stale/recovered host metrics and slow collection (12s+).
-- On the central server, outage and recovery event details now include timestamps and duration, without claiming that Windows was powered off.
-- Added tests for a permanently blocked host metrics collector, expiration, and delta calculation.
-- Server v0.2.20 accepts existing agents. To fix delayed heartbeats, update the agent on affected endpoints too.
+- Пункт **Все системы** переименован в **Сервера**. Отдельный пункт **RAID и диски** удалён из меню: полные данные RAID продолжают отображаться на странице сервера.
+- Для Windows в карточках сокращён префикс издателя и ОС. Например `Microsoft Windows Server 2019 Datacenter` отображается как `2019 Datacenter`. Сохранённая телеметрия и исходные значения не изменяются.
+- Раздел **Маршрутизаторы и коммутаторы** содержит карточки, как у серверов: доступность, IP, тип, активные/общие порты, максимальная скорость активного интерфейса, сумма трафика, приём, передача, SNMP, Syslog, uptime и заданное местоположение.
+- По нажатию открывается отдельная страница сетевого устройства с таблицей физических/логических интерфейсов, скоростями и трафиком.
+- Из SNMP IF-MIB дополнительно читается ifHighSpeed (Мбит/с), если отсутствует — ifSpeed. Устройства без этих OID остаются доступными, скорость отображается `—`.
+- Администратор может выбрать тип устройства `Коммутатор` или `Маршрутизатор`, указать, ожидается ли Syslog. Реальная отправка Syslog не выдумывается: в карточке указан факт получения сообщений из журнала, если источник обнаружен.
+- Изменение размера и порядка виджетов стало плавнее: перетаскивание за всю шапку с GPU-превью; размещение в сетке фиксируется после отпускания мыши.
+- Фильтр и выбор сетки сохраняются в браузере независимо от серверной сетки. Настройки и данные агентов не сбрасываются.
 
-## Limitations
-If Windows is fully suspended, frozen or powered off, no application heartbeat can be sent. Those cases still produce a legitimate agent-offline alert. Investigate hypervisor snapshots, backup freezes, clock corrections and Windows event logs when pauses persist.
+Для обновления интерфейса и SNMP достаточно `sudo storavix-update` на центральном сервере. Агенты Windows/Linux не требуют переустановки.
