@@ -26,7 +26,7 @@ trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/>',
 info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7h.01"/>'
 };
 function makeIcon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','ui-icon');svg.setAttribute('aria-hidden','true');svg.innerHTML=ICONS[name]||ICONS.info;return svg}
-document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','drives','network','logs','bell','settings'][i]||'info')));
+document.querySelectorAll('.sidebar .nav-icon').forEach((el,i)=>el.replaceWith(makeIcon(['layout','servers','network','logs','bell','settings'][i]||'info')));
 document.querySelectorAll('.empty-icon').forEach((el,i)=>el.replaceChildren(makeIcon(i===0?'drives':'logs')));
 $('menu-toggle').replaceChildren(makeIcon('menu'));
 $('systems-refresh').replaceChildren(makeIcon('refresh'),document.createTextNode('Обновить'));
@@ -44,10 +44,10 @@ function canEditDashboard() { return hasFullAccess() && canManageDevices(); }
 
 const pages = {
   overview: ['Обзор инфраструктуры', ''],
-  servers: ['Все системы', ''],
+  servers: ['Сервера', ''],
   server: ['Данные сервера', ''],
-  storage: ['RAID и диски', 'Контроллеры, массивы и физические накопители'],
-  network: ['SNMP', 'Доступность коммутаторов, состояние интерфейсов и трафик'],
+  network: ['Маршрутизаторы и коммутаторы', 'Доступность сетевого оборудования, SNMP, Syslog и трафик'],
+  device: ['Сетевое оборудование', 'Порты, скорости, трафик и местоположение'],
   'snmp-events': ['Журнал SNMP', ''],
   syslog: ['Журнал Syslog', ''],
   alerts: ['События и алерты', ''],
@@ -56,11 +56,15 @@ const pages = {
 let currentRoute = {page: 'overview', id: ''};
 
 function routeFromURL() {
-  const [page, id = ''] = location.hash.slice(1).split('/');
-  if (!Object.hasOwn(pages, page) || (['network', 'snmp-events'].includes(page) && !hasNetworkAccess()) ||
-      (['servers', 'server', 'storage'].includes(page) && !hasServerAccess()) ||
+  let [page, id = ''] = location.hash.slice(1).split('/');
+  // Preserve bookmarks made before the separate RAID tab was removed.
+  if (page === 'storage') return {page: 'servers', id: ''};
+  if (page === 'network' && id) page = 'device';
+  if (!Object.hasOwn(pages, page) || (['network', 'device', 'snmp-events'].includes(page) && !hasNetworkAccess()) ||
+      (['servers', 'server'].includes(page) && !hasServerAccess()) ||
       (page === 'syslog' && !hasFullAccess())) return {page: 'overview', id: ''};
   if (page === 'server' && !/^[a-f0-9]{32}$/.test(id)) return {page: 'servers', id: ''};
+  if (page === 'device' && !/^[a-zA-Z0-9_-]{1,48}$/.test(id)) return {page: 'network', id: ''};
   return {page, id: /^[a-zA-Z0-9_-]{1,48}$/.test(id) ? id : ''};
 }
 
@@ -79,7 +83,7 @@ function showRoute() {
   const hash = '#' + page + (id ? '/' + id : '');
   if (location.hash && location.hash !== hash) history.replaceState(null, '', hash);
   document.querySelectorAll('[data-page]').forEach(button => {
-    const active = button.dataset.page === ({server: 'servers', 'snmp-events': 'network'}[page] || page);
+    const active = button.dataset.page === ({server: 'servers', device: 'network', 'snmp-events': 'network'}[page] || page);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -95,9 +99,9 @@ function showRoute() {
   document.querySelector('.sidebar').classList.remove('open');
   if (old.page !== page || old.id !== id) window.scrollTo(0, 0);
   if (page === 'overview' || page === 'alerts') loadMonitoring();
-  if (page === 'servers' || page === 'storage') loadSystems();
+  if (page === 'servers') loadSystems();
   if (page === 'server') loadServer(id, true);
-  if (page === 'network') loadNetwork();
+  if (page === 'network' || page === 'device') loadNetwork();
   if (page === 'snmp-events') openSNMPJournal(old.page !== page || old.id !== id, id);
   if (page === 'settings') showSettings(id);
   if (page === 'syslog') openSyslogJournal(old.page !== page);
@@ -144,7 +148,7 @@ function showAuth() {
     resetUserForm();
     resetSNMPJournal();
     systemsCache = [];
-    for (const id of ['systems-grid', 'detail-content', 'storage-servers', 'syslog-rows', 'users-list']) $(id).replaceChildren();
+    for (const id of ['systems-grid', 'detail-content', 'network-detail', 'storage-servers', 'syslog-rows', 'users-list']) $(id).replaceChildren();
     $('syslog-filter').reset();
     syslogFilters = {};
     syslogCursor = 0;
@@ -165,7 +169,7 @@ function showShell(account) {
   avatar.title = account.username;
   document.querySelector('[data-page="network"]').classList.toggle('hidden', !hasNetworkAccess());
   document.querySelector('[data-page="syslog"]').classList.toggle('hidden', !hasFullAccess());
-  for (const page of ['servers', 'storage']) {
+  for (const page of ['servers']) {
     document.querySelector('[data-page="' + page + '"]').classList.toggle('hidden', !hasServerAccess());
   }
   $('network-add').classList.toggle('hidden', !canManageDevices());
@@ -400,13 +404,20 @@ $('systems-layout').value=systemsLayout;
 const fmtPercent=x=>typeof x==='number'?x.toLocaleString('ru-RU',{maximumFractionDigits:1})+'%':'—';
 const fmtRate=x=>typeof x!=='number'?'—':x>=1048576?(x/1048576).toLocaleString('ru-RU',{maximumFractionDigits:2})+' MB/s':x>=1024?(x/1024).toLocaleString('ru-RU',{maximumFractionDigits:1})+' KB/s':x.toLocaleString('ru-RU',{maximumFractionDigits:0})+' B/s';
 const fmtUptime=x=>typeof x!=='number'?'—':x>=86400?Math.floor(x/86400)+' дн.':x>=3600?Math.floor(x/3600)+' ч.':Math.floor(x/60)+' мин.';
-function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
+function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;value.title=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
 const systemStates = {
   online: 'Онлайн', warn: 'RAID: внимание', critical: 'RAID: критическое', offline: 'Нет связи'
 };
 
 function osDisplay(report) {
-  return report.osName || ({windows: 'Windows', linux: 'Linux'}[report.os] || report.os || '—');
+  const name = report.osName || ({windows: 'Windows', linux: 'Linux'}[report.os] || report.os || '—');
+  // Remove repetitive publisher and "Windows Server" prefixes in compact
+  // device cards; preserve version and edition (2019 Datacenter, etc.).
+  if (report.os === 'windows' || /^(?:Microsoft|Майкрософт|WinS|Windows Server)/i.test(name)) {
+    return name.replace(/^(?:(?:Microsoft|Майкрософт)\s+)+/i, '')
+      .replace(/^(?:Windows\s+Server|WinS)\s*/i, '').trim() || 'Windows';
+  }
+  return name;
 }
 
 function stateFor(report) {
