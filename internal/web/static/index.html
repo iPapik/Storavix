@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.19"></head>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#151515"><title>Storavix · Infrastructure Monitoring</title><link rel="icon" href="/storavix-mark-v2.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/style.css?v=0.2.21"></head>
 <body>
 <div id="login" class="login-page hidden"><div class="login-card"><div class="brand login-brand brand-integrated"><img class="login-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div><h1>Добро пожаловать</h1><p class="muted">Войдите, чтобы открыть панель мониторинга.</p><form id="login-form"><label>Имя пользователя<input id="login-user" autocomplete="username" placeholder="Логин, заданный при установке" required></label><label>Пароль<input id="login-pass" type="password" autocomplete="current-password" required></label><button class="primary wide">Войти в Storavix <span>→</span></button></form><p class="form-msg" id="login-msg"></p><p class="micro">Логин и пароль администратора задаются при первоначальной установке Storavix.</p></div></div>
 <div id="shell" class="app hidden">
  <aside class="sidebar"><div class="brand brand-integrated"><img class="sidebar-logo" src="/storavix-logo-v2.svg" alt="Storavix"></div>
   
-  <nav id="nav" aria-label="Основное меню"><button data-page="overview" class="active"><span class="nav-icon">▦</span> Обзор</button><button data-page="servers"><span class="nav-icon">▤</span> Все системы</button><button data-page="storage"><span class="nav-icon">▥</span> RAID и диски</button><button data-page="network"><span class="nav-icon">⌘</span> SNMP</button><button data-page="syslog"><span class="nav-icon">≡</span> Syslog</button><button data-page="alerts"><span class="nav-icon">♧</span> События и алерты</button></nav>
+  <nav id="nav" aria-label="Основное меню"><button data-page="overview" class="active"><span class="nav-icon">▦</span> Обзор</button><button data-page="servers"><span class="nav-icon">▤</span> Сервера</button><button data-page="network"><span class="nav-icon">⌘</span> Маршрутизаторы и коммутаторы</button><button data-page="syslog"><span class="nav-icon">≡</span> Syslog</button><button data-page="alerts"><span class="nav-icon">♧</span> События и алерты</button></nav>
   <div class="sidebar-caption sidebar-caption-bottom">УПРАВЛЕНИЕ</div><nav><button data-page="settings"><span class="nav-icon">⚙</span> Настройки</button></nav>
-  <div class="sidebar-foot"><small id="version"</small><span class="opensource">Storavix · Open Source</span></div>
+  <div class="sidebar-foot"><small id="version"></small><span class="opensource">Storavix · Open Source</span></div>
  </aside>
  <div class="main-wrap"><header class="topbar"><button id="menu-toggle" class="icon-button menu-toggle" aria-label="Меню">☰</button><div class="breadcrumb">Storavix <span>/</span> <b id="breadcrumb">Обзор</b></div><div class="top-actions"><span class="badge-soft" id="panel-address"></span><span id="user-avatar" class="user-avatar"></span><button id="logout" class="text-button">Выход</button></div></header>
  <main class="content">
@@ -34,7 +34,7 @@
    <div id="widget-grid" class="widget-grid"></div>
   </section>
  <section id="servers-view" class="page-view hidden">
-  <div class="systems-toolbar"><div><h2>Все системы</h2><p>Нажмите на систему для просмотра дополнительной информации.</p></div>
+  <div class="systems-toolbar"><div><h2>Сервера</h2><p>Выберите сервер для просмотра телеметрии и состояния RAID.</p></div>
     <div class="systems-actions"><input id="systems-filter" aria-label="Фильтр систем" placeholder="Фильтр..."><label class="systems-layout-label" for="systems-layout">Сетка:</label><select id="systems-layout" class="systems-layout-select" aria-label="Способ отображения серверов"><option value="large">Крупные · 2 колонки</option><option value="standard">Стандартные · 3 колонки</option><option value="compact">Компактные · 4 колонки</option><option value="list">Список · 1 колонка</option></select><button id="systems-refresh" class="secondary" type="button">Обновить</button></div></div>
   <div id="systems-empty" class="panel systems-no-data hidden"><h3>Нет подключённых систем</h3><p>Установите Storavix Agent на сервер Windows или Linux и настройте токен. Измерения появятся здесь автоматически.</p></div>
   <div id="systems-grid" class="systems-grid"></div>
@@ -42,7 +42,7 @@
  </section>
  <section id="server-view" class="page-view hidden">
   <div class="page-toolbar server-toolbar">
-   <a class="text-link back-link" href="#servers">← Все системы</a>
+   <a class="text-link back-link" href="#servers">← Сервера</a>
    <button id="server-refresh" type="button" class="secondary small">Обновить</button>
   </div>
   <div id="detail-content" class="server-detail"></div>
@@ -52,24 +52,42 @@
   <div id="storage-servers" class="storage-servers" aria-live="polite"></div>
  </section>
  <section id="network-view" class="page-view hidden">
-  <div class="page-toolbar">
-   <div class="toolbar-actions"><button id="network-add" class="primary small" type="button">Добавить коммутатор</button><button id="network-check" class="secondary small" type="button">Опросить сейчас</button><a class="text-link" href="#snmp-events">Журнал SNMP →</a></div>
+  <div class="systems-toolbar network-toolbar">
+   <div><h2>Маршрутизаторы и коммутаторы</h2><p>SNMP, Syslog, интерфейсы, трафик и доступность оборудования.</p></div>
+   <div class="systems-actions">
+    <input id="network-filter" aria-label="Фильтр сетевого оборудования" placeholder="Имя, IP, местоположение...">
+    <label class="systems-layout-label" for="network-layout">Сетка:</label>
+    <select id="network-layout" class="systems-layout-select" aria-label="Размеры карточек оборудования">
+      <option value="large">Крупные · 2 колонки</option><option value="standard">Стандартные · 3 колонки</option>
+      <option value="compact">Компактные · 4 колонки</option><option value="list">Список · 1 колонка</option>
+    </select>
+    <button id="network-add" class="primary small" type="button">Добавить устройство</button>
+    <button id="network-check" class="secondary small" type="button">Опросить</button>
+    <a class="text-link" href="#snmp-events">Журнал SNMP →</a>
+   </div>
   </div>
   <form id="network-form" class="inline-editor panel hidden">
+   <label>Тип оборудования<select id="network-kind"><option value="switch">Коммутатор</option><option value="router">Маршрутизатор</option></select></label>
    <label>Имя<input id="network-name" required maxlength="64" placeholder="SW-01"></label>
    <label>IP или DNS-имя<input id="network-host" required maxlength="253" placeholder="192.168.111.2"></label>
    <label>Опрос<select id="network-method"><option value="snmp">SNMP v2c</option><option value="tcp">TCP-порт</option></select></label>
    <label>Порт<input id="network-port" required type="number" min="1" max="65535" value="161"></label>
    <label id="network-community-label">Read-only community<input id="network-community" type="password" maxlength="128" autocomplete="new-password"></label>
+   <label class="check-field network-syslog-expected"><input id="network-syslog" type="checkbox"> Ожидаем Syslog от устройства (подтверждается входящими сообщениями)</label>
    <label id="network-temp-oid-label">OID температуры (необязательно)<input id="network-temp-oid" maxlength="341" placeholder="ENTITY-SENSOR-MIB автоматически"></label>
    <label id="network-temp-divisor-label">Делитель значения<select id="network-temp-divisor"><option value="1">1</option><option value="10">10</option><option value="100">100</option><option value="1000">1000</option></select></label>
    <div class="toolbar-actions"><button id="network-save" class="primary" type="submit">Сохранить</button><button id="network-cancel" class="secondary" type="button">Отмена</button></div>
   </form>
   <p id="network-msg" class="form-msg" role="status"></p>
-  <div id="network-devices" class="network-devices"></div>
+  <div id="network-devices" class="systems-grid network-card-grid" aria-live="polite"></div>
+ </section>
+ <section id="device-view" class="page-view hidden">
+  <div class="page-toolbar"><a href="#network" class="text-link back-link">← Маршрутизаторы и коммутаторы</a>
+  <button id="device-refresh" class="secondary small" type="button">Обновить</button></div>
+  <div id="network-detail" class="server-detail"></div>
  </section>
  <section id="snmp-events-view" class="page-view hidden">
-  <div class="page-toolbar"><a class="text-link" href="#network">← Коммутаторы</a><div class="toolbar-actions">
+  <div class="page-toolbar"><a class="text-link" href="#network">← Маршрутизаторы и коммутаторы</a><div class="toolbar-actions">
    <button id="snmp-refresh" class="secondary small" type="button">Обновить</button>
    <button id="snmp-traps-toggle" class="secondary small" type="button" aria-expanded="false">Приём уведомлений</button>
   </div></div>
@@ -170,10 +188,10 @@
  <div id="account-settings" class="panel settings-panel hidden"><div class="settings-heading"><div><h2>Безопасность учётной записи</h2><p>Измените пароль для доступа к веб-панели</p></div></div><form id="password-form"><label>Текущий пароль<input id="old-password" type="password" required></label><label>Новый пароль (не меньше 8 символов)<input id="new-password" type="password" minlength="8" required></label><div class="settings-actions"><button class="primary">Изменить пароль</button></div></form><p id="password-msg" class="form-msg"></p></div></div></section>
  </main><footer class="footer">Storavix <b id="footer-version"></b> <span>·</span> Infrastructure & Storage Monitoring <span class="footer-right">Open Source · Self-hosted</span></footer></div>
 </div><script src="/vendor/leaflet/leaflet.js" defer></script>
-<script src="/app.js?v=0.2.19" defer></script>
-<script src="/widget-grid.js?v=0.2.19" defer></script>
-<script src="/geo.js?v=0.2.19" defer></script>
-<script src="/syslog.js?v=0.2.19" defer></script>
-<script src="/accounts.js?v=0.2.19" defer></script>
-<script src="/snmp-events.js?v=0.2.19" defer></script>
-<script src="/dashboard.js?v=0.2.19" defer></script></body></html>
+<script src="/app.js?v=0.2.21" defer></script>
+<script src="/widget-grid.js?v=0.2.21" defer></script>
+<script src="/geo.js?v=0.2.21" defer></script>
+<script src="/syslog.js?v=0.2.21" defer></script>
+<script src="/accounts.js?v=0.2.21" defer></script>
+<script src="/snmp-events.js?v=0.2.21" defer></script>
+<script src="/dashboard.js?v=0.2.21" defer></script></body></html>
