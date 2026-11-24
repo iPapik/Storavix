@@ -50,7 +50,11 @@ func TestHostSamplerExpiredValuesNotReused(t *testing.T) {
 }
 
 func TestHostSamplerComputesRateOncePerSample(t *testing.T) {
-	s:=newHostSampler(func()(telemetry.Report,collector.Snapshot){return telemetry.Report{},collector.Snapshot{}})
+	// Keep the background worker blocked so synthetic samples cannot be
+	// overwritten by a concurrently finishing real poll.
+	gate:=make(chan struct{})
+	defer close(gate)
+	s:=newHostSampler(func()(telemetry.Report,collector.Snapshot){<-gate;return telemetry.Report{},collector.Snapshot{}})
 	s.running=true
 	start:=time.Now()
 	s.results<-hostSample{report:telemetry.Report{OS:"linux"},counters:collector.Snapshot{NetBytes:100,NetValid:true},at:start}
