@@ -1,6 +1,6 @@
 # Storavix
 
-**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.19** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
+**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.24** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
 
 ![Storavix logo](internal/web/static/storavix-logo.webp)
 
@@ -70,7 +70,11 @@ bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/iPapik/Storavi
 sudo storavix-update
 ```
 
-Сохраняются учётные записи, пароли, SMTP и данные в `/var/lib/storavix`. Подробности и разбор проблем: [обновление Linux/Windows](docs/UPDATE-RU.md). Windows пока обновляется отдельным PowerShell-скриптом; эта команда предназначена только для Linux с systemd. Агенты, установленные **на других серверах**, отдельно не обновляются.
+Сохраняются учётные записи, пароли, SMTP, Telegram и данные в `/var/lib/storavix`. Подробности и разбор проблем: [обновление Linux/Windows](docs/UPDATE-RU.md). Windows пока обновляется отдельным PowerShell-скриптом; эта команда предназначена только для Linux с systemd. Агенты, установленные **на других серверах**, отдельно не обновляются.
+
+## Telegram-уведомления
+
+В разделе **Настройки → Telegram** настройте отдельного бота, получателя и события. SMTP и Telegram работают независимо. Подробности: [настройка Telegram](docs/TELEGRAM-RU.md).
 
 ## Документация
 
