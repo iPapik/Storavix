@@ -123,6 +123,7 @@ func (s *server) applyMonitorLocked(key, generation, source string, at time.Time
 	next := old
 	var events []Alert
 	pending := -1
+	telegramPending := -1
 	changed := false
 	for _, observation := range changes {
 		prior, known := old.Conditions[observation.Key]
@@ -158,8 +159,23 @@ func (s *server) applyMonitorLocked(key, generation, source string, at time.Time
 				deliveryError = "Очередь SMTP переполнена"
 			}
 		}
+		telegramDelivery, telegramError := "disabled", ""
+		if s.state.Telegram.Enabled && slices.Contains(s.state.Telegram.Alerts, rule.ID) {
+			if telegramPending == -1 {
+				telegramPending = 0
+				for _, event := range s.state.Alerts {
+					if pendingTelegram(event) { telegramPending++ }
+				}
+			}
+			if telegramPending < mailQueueLimit {
+				telegramDelivery = "queued"
+				telegramPending++
+			} else {
+				telegramDelivery, telegramError = "failed", "Очередь Telegram переполнена"
+			}
+		}
 		events = append(events, Alert{ID: hex.EncodeToString(randomBytes(8)), CreatedAt: at, Severity: rule.Severity,
-			Subject: rule.Label + " — " + source, Detail: observation.Detail, Kind: rule.ID, Delivery: delivery, DeliveryError: deliveryError})
+			Subject: rule.Label + " — " + source, Detail: observation.Detail, Kind: rule.ID, Delivery: delivery, DeliveryError: deliveryError, TelegramDelivery: telegramDelivery, TelegramDeliveryError: telegramError})
 	}
 	if !changed {
 		return
@@ -194,20 +210,19 @@ func (s *server) applyMonitorLocked(key, generation, source string, at time.Time
 
 func trimAlerts(events []Alert) []Alert {
 	slices.SortStableFunc(events, func(a, b Alert) int { return b.CreatedAt.Compare(a.CreatedAt) })
-	// The history stays bounded even when SMTP is unavailable, and already
-	// queued mail is kept when removing historical entries.
+	// Preserve pending deliveries for either channel when trimming history.
 	if len(events) <= eventHistoryLimit {
 		return events
 	}
 	result := make([]Alert, 0, eventHistoryLimit)
 	pending := 0
 	for _, event := range events {
-		if event.Delivery == "queued" || event.Delivery == "sending" {
+		if event.Delivery == "queued" || event.Delivery == "sending" || pendingTelegram(event) {
 			pending++
 		}
 	}
 	for _, event := range events {
-		isPending := event.Delivery == "queued" || event.Delivery == "sending"
+		isPending := event.Delivery == "queued" || event.Delivery == "sending" || pendingTelegram(event)
 		if isPending {
 			pending--
 		}

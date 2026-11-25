@@ -51,7 +51,7 @@ const pages = {
   'snmp-events': ['Журнал SNMP', ''],
   syslog: ['Журнал Syslog', ''],
   alerts: ['События и алерты', ''],
-  settings: ['Настройки', 'SMTP, Syslog и безопасность']
+  settings: ['Настройки', 'SMTP, Telegram, Syslog и безопасность']
 };
 let currentRoute = {page: 'overview', id: ''};
 
@@ -155,6 +155,11 @@ function showAuth() {
     $('network-form').reset();
     $('network-form').classList.add('hidden');
     $('smtp-form').reset();
+    $('telegram-form').reset();
+    $('telegram-chats').replaceChildren();
+    $('telegram-chats').classList.add('hidden');
+    $('telegram-alert-rules').replaceChildren();
+    msg('telegram-msg', '');
     $('password-form').reset();
   }
   session = false;
@@ -187,11 +192,12 @@ function eventNode(event) {
   row.className = 'event-list-row';
   const info = document.createElement('div');
   info.append(makeText('strong', event.subject), makeText('small', event.detail, 'muted'));
-  if (event.deliveryError) info.append(makeText('small', event.deliveryError, 'muted'));
+  if (event.deliveryError) info.append(makeText('small', 'SMTP: ' + event.deliveryError, 'muted'));
+  if (event.telegramDeliveryError) info.append(makeText('small', 'Telegram: ' + event.telegramDeliveryError, 'muted'));
   const date = makeText('time', new Date(event.createdAt).toLocaleString('ru-RU'), 'muted');
   date.dateTime = event.createdAt;
   const status = {
-    disabled: ['Без письма', 'grey'],
+    disabled: ['Выключено', 'grey'],
     queued: ['В очереди', 'grey'],
     sending: ['Отправляется', 'grey'],
     unknown: ['Отправка не подтверждена', 'storage-warning'],
@@ -199,7 +205,13 @@ function eventNode(event) {
     sent: ['Отправлено', 'green']
   };
   const [label, style] = status[event.delivery] || status[event.delivered ? 'sent' : 'failed'];
-  row.append(info, date, makeText('span', label, 'tag ' + style));
+  const channels = document.createElement('div');
+  channels.append(makeText('span', 'SMTP: ' + label, 'tag ' + style));
+  if (event.telegramDelivery) {
+    const [tgLabel, tgStyle] = status[event.telegramDelivery] || status.unknown;
+    channels.append(makeText('span', 'Telegram: ' + tgLabel, 'tag ' + tgStyle));
+  }
+  row.append(info, date, channels);
   return row;
 }
 let mailCertificateRequest = 0;
@@ -212,8 +224,8 @@ function resetMailCertificate() {
   $('mail-cert-fetch').disabled = false;
 }
 
-function renderMailRules(rules, selected) {
-  const root = $('mail-alert-rules');
+function renderMailRules(rules, selected, rootId = 'mail-alert-rules') {
+  const root = $(rootId);
   root.replaceChildren();
   const groups = new Map();
   for (const rule of rules) {
@@ -339,7 +351,7 @@ $('menu-toggle').addEventListener('click',()=>document.querySelector('.sidebar')
 $('alert-refresh').addEventListener('click', () => loadMonitoring());
 window.addEventListener('hashchange', showRoute);
 function showSettings(name) {
-  const allowed = isAdmin() ? ['smtp', 'syslog', 'users', 'account'] : ['account'];
+  const allowed = isAdmin() ? ['smtp', 'telegram', 'syslog', 'users', 'account'] : ['account'];
   const tab = allowed.includes(name) ? name : allowed[0];
   document.querySelectorAll('[data-tab]').forEach(button => {
     const active = button.dataset.tab === tab;
@@ -349,6 +361,7 @@ function showSettings(name) {
     $(button.dataset.tab + '-settings').classList.toggle('hidden', !active);
   });
   if (tab === 'smtp') loadMail();
+  if (tab === 'telegram') loadTelegram();
   if (tab === 'syslog') loadSyslogSettings();
   if (tab === 'users') loadAccounts();
 }
@@ -389,6 +402,63 @@ async function sendTest(endpoint) {
 }
 $('test-email').addEventListener('click', () => sendTest('/api/settings/mail/test'));
 $('test-alert').addEventListener('click', () => sendTest('/api/alerts/test'));
+async function loadTelegram() {
+  try {
+    const [c, rules] = await Promise.all([api('/api/settings/telegram'), api('/api/settings/mail/events')]);
+    $('telegram-enabled').checked = c.enabled;
+    $('telegram-chat').value = c.chatId || '';
+    $('telegram-topic').value = c.topicId || '';
+    $('telegram-token').value = '';
+    $('telegram-token').placeholder = c.hasToken ? 'Токен сохранён — оставьте пустым' : 'Введите токен от BotFather';
+    $('telegram-server-temp').value = c.serverTempLimit || 80;
+    $('telegram-switch-temp').value = c.switchTempLimit || 70;
+    renderMailRules(rules, c.alerts || [], 'telegram-alert-rules');
+    $('telegram-chats').replaceChildren();
+    $('telegram-chats').classList.add('hidden');
+  } catch (e) { msg('telegram-msg', e.message, true); }
+}
+function telegramForm() {
+  return {enabled: $('telegram-enabled').checked, token: $('telegram-token').value.trim(),
+    chatId: $('telegram-chat').value.trim(), topicId: Number($('telegram-topic').value || 0),
+    alerts: [...$('telegram-alert-rules').querySelectorAll('input:checked')].map(i => i.value),
+    serverTempLimit: Number($('telegram-server-temp').value), switchTempLimit: Number($('telegram-switch-temp').value)};
+}
+$('telegram-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/api/settings/telegram', {method: 'PUT', body: JSON.stringify(telegramForm())});
+    msg('telegram-msg', 'Настройки сохранены.');
+    await loadTelegram();
+  } catch (e) { msg('telegram-msg', e.message, true); }
+});
+$('telegram-test').addEventListener('click', async () => {
+  if (!$('telegram-form').reportValidity()) return;
+  const b = $('telegram-test'); b.disabled = true;
+  msg('telegram-msg', 'Отправляем сообщение…');
+  try {
+    await api('/api/settings/telegram/test', {method: 'POST', body: JSON.stringify(telegramForm())});
+    msg('telegram-msg', 'Тестовое сообщение отправлено.');
+  } catch (e) { msg('telegram-msg', e.message, true); }
+  finally { b.disabled = false; }
+});
+$('telegram-discover').addEventListener('click', async () => {
+  const b = $('telegram-discover'), select = $('telegram-chats');
+  b.disabled = true; select.replaceChildren(); select.classList.add('hidden');
+  msg('telegram-msg', 'Получаем список чатов…');
+  try {
+    const chats = await api('/api/settings/telegram/chats', {method: 'POST', body: JSON.stringify({token: $('telegram-token').value.trim()})});
+    const placeholder = makeText('option', 'Выберите чат'); placeholder.value = ''; select.append(placeholder);
+    for (const chat of chats) {
+      const option = makeText('option', chat.id + ' — ' + (chat.title || chat.type)); option.value = chat.id; select.append(option);
+    }
+    select.classList.toggle('hidden', !chats.length);
+    msg('telegram-msg', chats.length ? 'Выберите чат из списка.' : 'Чаты не найдены. Отправьте боту /start и повторите поиск.');
+  } catch (e) { msg('telegram-msg', e.message, true); }
+  finally { b.disabled = false; }
+});
+$('telegram-chats').addEventListener('change', () => {
+  if ($('telegram-chats').value) $('telegram-chat').value = $('telegram-chats').value;
+});
 $('password-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/account/password',{method:'POST',body:JSON.stringify({old:$('old-password').value,new:$('new-password').value})});$('old-password').value='';$('new-password').value='';msg('password-msg','Пароль изменён, войдите заново.');showAuth()}catch(err){msg('password-msg',err.message,true)}});
 
 
