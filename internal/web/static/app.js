@@ -574,7 +574,7 @@ function renderServer(r) {
     }
   });
   if (isAdmin()) actions.append(remove);
-  d.replaceChildren(metrics, files, storage, actions);
+  d.replaceChildren(metrics, diagnostics, files, storage, actions);
 }
 
 function makeSection(title) {
