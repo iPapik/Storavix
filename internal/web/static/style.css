@@ -341,3 +341,10 @@ label.check-field input[type="checkbox"]{flex:none}
 }
 
 .sidebar nav button[data-page="network"]{white-space:normal;text-align:left;line-height:1.3;font-size:12px;min-height:48px}
+
+/* v0.2.23: distinguish delayed heartbeat from confirmed offline. */
+.state-text.stale{color:#d7a64c}
+.system-dot.stale{background:#d7a64c}
+.widget-list-row .muted{line-height:1.45}
+.widget-list-row>div{min-width:0;overflow-wrap:anywhere}
+.dashboard-widget .widget-body{overflow-y:auto;overscroll-behavior:contain}

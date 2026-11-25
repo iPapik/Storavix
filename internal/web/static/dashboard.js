@@ -142,7 +142,7 @@ function action(label, handler, className = 'text-button') {
 
 function renderOverview() {
   const stats = [
-    ...(hasServerAccess() ? [['Серверы онлайн', monitoring.hosts.filter(h => h.status !== 'down').length + ' / ' + monitoring.hosts.length, 'servers', 'servers']] : []),
+    ...(hasServerAccess() ? [['Серверы онлайн', monitoring.hosts.filter(h => !['down','stale'].includes(h.status)).length + ' / ' + monitoring.hosts.length, 'servers', 'servers']] : []),
     ...(hasNetworkAccess() ? [['Маршрутизаторы и коммутаторы', monitoring.network.length, 'network', 'network']] : []),
     ['Активные алармы', monitoring.problems.length, 'bell', 'alerts']
   ];
@@ -218,7 +218,7 @@ function renderWidget(panel, widget) {
       panel.append(summary);
       const priority = {inactive: 0, degraded: 1, rebuilding: 2, stale: 3, unknown: 4, active: 5};
       const arrays = [...monitoring.arrays].sort((a, b) => (priority[a.status] ?? 4) - (priority[b.status] ?? 4));
-      addList(panel, arrays.slice(0, 8), array => {
+      addList(panel, arrays, array => {
         const row = document.createElement('div');
         row.className = 'widget-list-row';
         const info = document.createElement('div');
@@ -230,7 +230,7 @@ function renderWidget(panel, widget) {
       break;
     }
     case 'network':
-      addList(panel, monitoring.network.slice(0, 8), device => {
+      addList(panel, monitoring.network, device => {
         const row = document.createElement('div');
         row.className = 'widget-list-row';
         const info = document.createElement('div');
@@ -238,7 +238,7 @@ function renderWidget(panel, widget) {
           device.status === 'up' ? portSummary(device) : device.host, 'muted'));
         row.append(info, statusTag(device.status));
         return row;
-      }, 'Добавьте коммутаторы в разделе «Сеть».');
+      }, 'Добавьте устройство в разделе «Маршрутизаторы и коммутаторы».');
       break;
     case 'problems':
       addList(panel, monitoring.problems.slice(0, 8), problemNode, 'Активных алармов нет.');
@@ -247,10 +247,21 @@ function renderWidget(panel, widget) {
       addList(panel, monitoring.events.slice(0, 6), eventNode, 'Журнал пока пуст.');
       break;
     case 'servers':
-      addList(panel, monitoring.hosts.slice(0, 8), host => {
+      addList(panel, monitoring.hosts, host => {
         const row = document.createElement('div');
         row.className = 'widget-list-row';
-        row.append(routeLink(host.name, 'server', host.id), statusTag(host.status));
+        const info = document.createElement('div');
+        const received = host.receivedAt ? new Date(host.receivedAt).toLocaleString('ru-RU') : '—';
+        const usage = [
+          host.osName || '',
+          host.agentVersion ? 'Агент ' + host.agentVersion : '',
+          host.cpuPercent != null ? 'ЦП ' + fmtPercent(host.cpuPercent) : '',
+          host.memoryPercent != null ? 'Память ' + fmtPercent(host.memoryPercent) : ''
+        ].filter(Boolean).join(' · ');
+        info.append(routeLink(host.name, 'server', host.id),
+          makeText('small', 'Последний отчёт: ' + received, 'muted'));
+        if (usage) info.append(makeText('small', usage, 'muted'));
+        row.append(info, statusTag(host.status));
         return row;
       }, 'Ожидание отчётов агентов.');
       break;

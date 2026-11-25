@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,9 +89,17 @@ func TestDashboardStaleAgentDoesNotReportHealthyRAID(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
 		t.Fatal(err)
 	}
-	if len(data.Arrays) != 1 || data.Arrays[0].Status != "stale" || len(data.Problems) != 1 ||
-		data.Problems[0].Severity != "critical" {
-		t.Fatalf("stale data shown as current: %+v", data)
+	if len(data.Arrays) != 1 || data.Arrays[0].Status != "stale" ||
+		len(data.Hosts)!=1 || data.Hosts[0].Status!="stale" || len(data.Problems)!=0 {
+		t.Fatalf("brief gap must be stale, not critical: %+v", data)
+	}
+	s.agents["old"]=telemetry.Report{ID:"old",Hostname:"Old",ReceivedAt:time.Now().Add(-11*time.Minute),
+		Arrays:[]telemetry.Array{{Name:"Data",Status:"active"}}}
+	w=httptest.NewRecorder()
+	s.getDashboardData(w,r.WithContext(context.WithValue(r.Context(),accountContextKey{},Account{Scope:scopeAll})))
+	if err:=json.Unmarshal(w.Body.Bytes(),&data);err!=nil{t.Fatal(err)}
+	if data.Hosts[0].Status!="down" || len(data.Problems)!=1 || data.Problems[0].Severity!="critical" {
+		t.Fatalf("confirmed offline not shown: %+v",data)
 	}
 }
 
@@ -123,5 +132,26 @@ func TestDashboardPropagatesDiskIssuesToArrayAndHost(t *testing.T) {
 			len(data.Problems) != 1 || data.Problems[0].Severity != tc.alarm {
 			t.Fatalf("bad RAID status for %s: %+v", tc.disk, data)
 		}
+	}
+}
+
+func TestDashboardIncludesAllNineServersWithMetadata(t *testing.T) {
+	s:=&server{agents:map[string]telemetry.Report{}}
+	cpu,memory:=12.5,50.0
+	for i:=0;i<9;i++{
+		id:=fmt.Sprintf("id%02d",i)
+		s.agents[id]=telemetry.Report{ID:id,Hostname:fmt.Sprintf("SRV%02d",i),
+			OSName:"Microsoft Windows Server 2019 Datacenter",Version:"0.2.23",
+			ReceivedAt:time.Now(),CPUPercent:&cpu,MemoryPercent:&memory}
+	}
+	r:=httptest.NewRequest("GET","/api/dashboard",nil)
+	w:=httptest.NewRecorder()
+	s.getDashboardData(w,r.WithContext(context.WithValue(r.Context(),accountContextKey{},Account{Scope:scopeAll})))
+	var result DashboardData
+	if err:=json.Unmarshal(w.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+	if len(result.Hosts)!=9 ||result.Hosts[8].Name!="SRV08" ||
+		result.Hosts[8].AgentVersion!="0.2.23" ||result.Hosts[8].CPUPercent==nil ||
+		result.Hosts[8].ReceivedAt.IsZero() {
+		t.Fatalf("missing host/metadata from dashboard: %+v",result.Hosts)
 	}
 }

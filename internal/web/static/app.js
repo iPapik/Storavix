@@ -406,7 +406,8 @@ const fmtRate=x=>typeof x!=='number'?'—':x>=1048576?(x/1048576).toLocaleString
 const fmtUptime=x=>typeof x!=='number'?'—':x>=86400?Math.floor(x/86400)+' дн.':x>=3600?Math.floor(x/3600)+' ч.':Math.floor(x/60)+' мин.';
 function metricRow(icon,title,val,pct,warning=75){const row=document.createElement('div');row.className='system-metric';const ic=document.createElement('span');ic.className='system-icon';ic.replaceChildren(makeIcon(icon));const titleNode=document.createElement('span');titleNode.className='system-label';titleNode.textContent=title;const value=document.createElement('strong');value.className='system-value';value.textContent=val;value.title=val;row.append(ic,titleNode,value);if(pct!==undefined){const bar=document.createElement('div');bar.className='system-bar';const fill=document.createElement('span');fill.className=pct>=warning?'system-fill warning':'system-fill';fill.style.width=(typeof pct==='number'?Math.max(0,Math.min(pct,100)):0)+'%';bar.append(fill);row.append(bar)}return row}
 const systemStates = {
-  online: 'Онлайн', warn: 'RAID: внимание', critical: 'RAID: критическое', offline: 'Нет связи'
+  online: 'Онлайн', warn: 'RAID: внимание', critical: 'RAID: критическое',
+  stale: 'Данные устарели', offline: 'Нет связи с агентом'
 };
 
 function osDisplay(report) {
@@ -421,7 +422,9 @@ function osDisplay(report) {
 }
 
 function stateFor(report) {
-  if (Date.now() - Date.parse(report.receivedAt) > 120000) return 'offline';
+  const age = Date.now() - Date.parse(report.receivedAt);
+  if (age > 10 * 60 * 1000) return 'offline';
+  if (age > 2 * 60 * 1000) return 'stale';
   const storage = report.storage;
   const health = mostSevereStorageStatus('active', [
     ...(report.arrays || []), ...(storage?.drives || []), ...(storage?.controllers || [])
@@ -514,6 +517,9 @@ function renderServer(r) {
   detailRow(metrics, 'Состояние', systemStates[state], 'state-text ' + state);
   for (const [key, value] of [
     ['Операционная система', osDisplay(r)], ['Последний отчёт', new Date(r.receivedAt).toLocaleString('ru-RU')],
+    ['Описание процессора', r.cpuModel || null],
+    ['Физические ядра ЦП', r.cpuCores || null],
+    ['Логические процессоры', r.cpuThreads || null],
     ['Температура', r.temperature != null ? fmtTemperature(r.temperature) : null],
     ['Оперативная память', r.memoryBytes ? fmtBytes(r.memoryBytes) : null],
     ['Доступно памяти', r.memoryAvailable != null ? fmtBytes(r.memoryAvailable) : null],
@@ -522,6 +528,26 @@ function renderServer(r) {
   ]) {
     if (value != null) detailRow(metrics, key, value);
   }
+  const diagnostics = makeSection('Агент · диагностика и качество данных');
+  if (r.diagnostics) {
+    const diag = r.diagnostics;
+    const state = {ok: 'Свежие данные', stale: 'Метрики устарели', pending: 'Ожидание первого опроса'}[diag.metricsStatus] || 'Неизвестно';
+    for (const [key,value] of [
+      ['Состояние сбора', state],
+      ['Последнее измерение', diag.sampleCollectedAt ? new Date(diag.sampleCollectedAt).toLocaleString('ru-RU') : '—'],
+      ['Возраст метрик', diag.sampleAgeSeconds != null ? diag.sampleAgeSeconds + ' с' : '—'],
+      ['Продолжительность опроса ОС', diag.sampleDurationMs != null ? diag.sampleDurationMs + ' мс' : '—'],
+      ['Время работы агента', fmtUptime(diag.agentUptimeSeconds)],
+      ['Период отправки', diag.reportIntervalSeconds + ' с'],
+      ['Ошибки отправки подряд', diag.sendFailures],
+      ['Длительность предыдущего HTTP-запроса', diag.lastSendDurationMs != null ? diag.lastSendDurationMs + ' мс' : '—']
+    ]) detailRow(diagnostics,key,value);
+  } else {
+    diagnostics.append(makeText('p',
+      'Подробная диагностика появится после обновления агента до версии 0.2.23 или новее.', 'muted'));
+  }
+  const receivedAge = Math.max(0, Math.round((Date.now()-Date.parse(r.receivedAt))/1000));
+  detailRow(diagnostics, 'Возраст последнего принятого отчёта', receivedAge + ' с');
   const files = makeSection('Файловые системы');
   if (r.volumes?.length) {
     files.append(dataTable(

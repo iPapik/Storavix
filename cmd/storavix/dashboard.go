@@ -148,6 +148,12 @@ type DashboardHost struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
+	ReceivedAt time.Time `json:"receivedAt"`
+	OSName string `json:"osName,omitempty"`
+	AgentVersion string `json:"agentVersion,omitempty"`
+	CPUPercent *float64 `json:"cpuPercent,omitempty"`
+	MemoryPercent *float64 `json:"memoryPercent,omitempty"`
+	AgentMetricsStatus string `json:"agentMetricsStatus,omitempty"`
 }
 
 type DashboardArray struct {
@@ -206,7 +212,9 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		age := now.Sub(r.ReceivedAt)
 		offline := age > agentOfflineAfter
 		stale := age > agentStaleAfter
-		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up"}
+		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up", ReceivedAt:r.ReceivedAt,
+			OSName:r.OSName, AgentVersion:r.Version, CPUPercent:r.CPUPercent, MemoryPercent:r.MemoryPercent}
+		if r.Diagnostics != nil {h.AgentMetricsStatus=r.Diagnostics.MetricsStatus}
 		if offline {
 			h.Status = "down"
 			add("Подтверждена потеря телеметрии агента", "critical", "availability", "down")
