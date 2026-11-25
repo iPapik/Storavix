@@ -130,6 +130,9 @@ func main() {
 	}
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
 	osName := collector.OSName()
+	agentStartedAt := time.Now()
+	var sendFailures uint64
+	var lastSendDurationMs *int64
 	// The heartbeat must never be blocked by a slow CIM/PowerShell host-metrics
 	// query. Host telemetry is collected independently and reused only while fresh.
 	hostMetrics := newHostSampler(collector.Read)
@@ -173,11 +176,23 @@ func main() {
 		r.OS = runtime.GOOS
 		r.OSName = osName
 		r.Version = telemetry.AgentVersion
+		diag := hostMetrics.diagnostics(time.Now())
+		diag.AgentUptimeSeconds = int64(time.Since(agentStartedAt).Seconds())
+		diag.ReportIntervalSeconds = int64(interval.Seconds())
+		diag.SendFailures = sendFailures
+		diag.LastSendDurationMs = lastSendDurationMs
+		r.Diagnostics = diag
+		sendStarted := time.Now()
 		e = send(client, normalizedURL, token, r)
+		elapsed := time.Since(sendStarted).Milliseconds()
+		lastSendDurationMs = &elapsed
 		if e != nil {
+			sendFailures++
 			log.Printf("report failed: %v", e)
 		} else {
-			log.Printf("reported host=%s os=%s", hostname, r.OS)
+			sendFailures = 0
+			log.Printf("reported host=%s os=%s metrics=%s sample_age=%v collector_ms=%v send_ms=%d",
+				hostname, r.OS, diag.MetricsStatus, diag.SampleAgeSeconds, diag.SampleDurationMs, elapsed)
 		}
 		if *once {
 			if e != nil {

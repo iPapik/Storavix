@@ -20,6 +20,10 @@ type Report struct {
 	OS                 string    `json:"os"`
 	OSName             string    `json:"osName,omitempty"`
 	Version            string    `json:"version"`
+	CPUModel           string    `json:"cpuModel,omitempty"`
+	CPUCores           int       `json:"cpuCores,omitempty"`
+	CPUThreads         int       `json:"cpuThreads,omitempty"`
+	Diagnostics        *AgentDiagnostics `json:"diagnostics,omitempty"`
 	CPUPercent         *float64  `json:"cpuPercent"`
 	MemoryPercent      *float64  `json:"memoryPercent"`
 	Temperature        *float64  `json:"temperature,omitempty"`
@@ -33,6 +37,18 @@ type Report struct {
 	Arrays             []Array   `json:"arrays,omitempty"`
 	Storage            *Storage  `json:"storage,omitempty"`
 	ReceivedAt         time.Time `json:"receivedAt"` // overwritten by server
+}
+
+// AgentDiagnostics is about the telemetry transport/collector, not OS health.
+type AgentDiagnostics struct {
+	MetricsStatus string `json:"metricsStatus"` // ok, stale, pending
+	SampleCollectedAt time.Time `json:"sampleCollectedAt,omitempty"`
+	SampleAgeSeconds *int64 `json:"sampleAgeSeconds,omitempty"`
+	SampleDurationMs *int64 `json:"sampleDurationMs,omitempty"`
+	AgentUptimeSeconds int64 `json:"agentUptimeSeconds"`
+	ReportIntervalSeconds int64 `json:"reportIntervalSeconds"`
+	SendFailures uint64 `json:"sendFailures"`
+	LastSendDurationMs *int64 `json:"lastSendDurationMs,omitempty"`
 }
 
 type Volume struct {
@@ -107,8 +123,21 @@ const (
 var validID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 func (r Report) Validate() error {
-	if !validID.MatchString(r.ID) || len(r.Hostname) < 1 || len(r.Hostname) > 128 || strings.ContainsAny(r.Hostname, "\r\n<>\x00") || len(r.OS) > 48 || !shortText(r.OSName) || len(r.Version) > 32 {
+	if !validID.MatchString(r.ID) || len(r.Hostname) < 1 || len(r.Hostname) > 128 || strings.ContainsAny(r.Hostname, "\r\n<>\x00") || len(r.OS) > 48 || !shortText(r.OSName,r.CPUModel) || len(r.Version) > 32 {
 		return errors.New("invalid agent identity")
+	}
+	if r.CPUCores < 0 || r.CPUCores > 4096 || r.CPUThreads < 0 || r.CPUThreads > 8192 {
+		return errors.New("invalid processor topology")
+	}
+	if d := r.Diagnostics; d != nil {
+		if d.MetricsStatus != "ok" && d.MetricsStatus != "stale" && d.MetricsStatus != "pending" ||
+			d.AgentUptimeSeconds < 0 || d.ReportIntervalSeconds < 15 ||
+			d.ReportIntervalSeconds > 86400 ||
+			d.SampleAgeSeconds != nil && (*d.SampleAgeSeconds < 0 || *d.SampleAgeSeconds > 315360000) ||
+			d.SampleDurationMs != nil && (*d.SampleDurationMs < 0 || *d.SampleDurationMs > 315360000000) ||
+			d.LastSendDurationMs != nil && (*d.LastSendDurationMs < 0 || *d.LastSendDurationMs > 315360000000) {
+			return errors.New("invalid agent diagnostics")
+		}
 	}
 	for _, v := range []*float64{r.CPUPercent, r.MemoryPercent, r.DiskPercent} {
 		if v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > 100) {

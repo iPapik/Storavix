@@ -118,3 +118,22 @@ func (s *hostSampler) current(now time.Time) telemetry.Report {
 	// extends the copy, never mutating the cached snapshot.
 	return s.last.report
 }
+
+// diagnostics explains whether OS statistics are current. This is kept apart
+// from the presence report so a stalled CIM/WMI call cannot stall the heartbeat.
+func (s *hostSampler) diagnostics(now time.Time) *telemetry.AgentDiagnostics {
+	d := &telemetry.AgentDiagnostics{MetricsStatus:"pending"}
+	if !s.seen {return d}
+	if now.Before(s.last.at) {return d}
+	d.SampleCollectedAt=s.last.at.UTC()
+	age:=int64(now.Sub(s.last.at).Seconds())
+	d.SampleAgeSeconds=&age
+	duration:=s.last.took.Milliseconds()
+	d.SampleDurationMs=&duration
+	if now.Sub(s.last.at)>hostMetricsMaxAge {
+		d.MetricsStatus="stale"
+	} else {
+		d.MetricsStatus="ok"
+	}
+	return d
+}

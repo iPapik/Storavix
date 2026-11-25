@@ -18,7 +18,11 @@ type Snapshot struct {
 const hostMetricsScript = `
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
 $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
-$cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average
+$processors = @(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue)
+$cpu = $processors | Measure-Object -Property LoadPercentage -Average
+$cpuCores = ($processors | Measure-Object -Property NumberOfCores -Sum).Sum
+$cpuThreads = ($processors | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
+$cpuModel = if ($processors.Count -gt 0) { [string]$processors[0].Name } else { '' }
 $disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue)
 $network = $null
 foreach ($adapter in Get-NetAdapterStatistics -ErrorAction SilentlyContinue) {
@@ -32,7 +36,8 @@ $volumes = @(foreach ($disk in $disks) {
     }
 })
 @{
-    cpu = $cpu.Average; total = $os.TotalVisibleMemorySize; free = $os.FreePhysicalMemory
+    cpu = $cpu.Average; cpuModel = $cpuModel; cpuCores = $cpuCores; cpuThreads = $cpuThreads
+    total = $os.TotalVisibleMemorySize; free = $os.FreePhysicalMemory
     systemDrive = [string]$os.SystemDrive; network = $network; volumes = $volumes
     uptime = if ($os.LastBootUpTime) { ([datetime]::UtcNow-$os.LastBootUpTime.ToUniversalTime()).TotalSeconds }
 } | ConvertTo-Json -Depth 4 -Compress
@@ -49,6 +54,9 @@ func Read() (telemetry.Report, Snapshot) {
 	}
 	var v struct {
 		CPU         *float64
+		CPUModel    string
+		CPUCores    int
+		CPUThreads  int
 		Total       uint64
 		Free        *uint64
 		Uptime      *float64
@@ -60,6 +68,9 @@ func Read() (telemetry.Report, Snapshot) {
 		return r, s
 	}
 	r.CPUPercent = v.CPU
+	r.CPUModel = v.CPUModel
+	r.CPUCores = v.CPUCores
+	r.CPUThreads = v.CPUThreads
 	r.MemoryBytes = v.Total * 1024
 	if v.Total > 0 && v.Free != nil && *v.Free <= v.Total {
 		free := *v.Free * 1024

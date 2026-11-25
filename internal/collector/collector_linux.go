@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"github.com/iPapik/Storavix/internal/telemetry"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -69,7 +70,19 @@ func readNetwork() (uint64, bool) {
 	return total, s.Err() == nil
 }
 func Read() (telemetry.Report, Snapshot) {
-	r := telemetry.Report{OS: "linux"}
+	r := telemetry.Report{OS: "linux", CPUThreads:runtime.NumCPU()}
+	if b,err:=os.ReadFile("/proc/cpuinfo");err==nil{
+		for _,line:=range strings.Split(string(b),"\n"){
+			if strings.HasPrefix(line,"model name"){
+				if _,model,found:=strings.Cut(line,":");found{
+					model=strings.TrimSpace(model)
+					if len(model)>160{model=model[:160]}
+					r.CPUModel=model
+				}
+				break
+			}
+		}
+	}
 	ss := Snapshot{}
 	ss.CPUIdle, ss.CPUTotal, ss.CPUValid = readCPU()
 	ss.NetBytes, ss.NetValid = readNetwork()
