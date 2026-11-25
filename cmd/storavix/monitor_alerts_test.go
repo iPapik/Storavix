@@ -69,6 +69,11 @@ func TestMonitorAgentTransitionsPersist(t *testing.T) {
 	s.observeAgentLocked(r)
 	s.agents[r.ID] = r
 
+	// Short gaps no longer generate back-to-back down/up emails.
+	s.scanOffline(r.ReceivedAt.Add(agentStaleAfter + time.Second))
+	if len(s.state.Alerts) != 4 {
+		t.Fatalf("a brief telemetry gap generated email events: %v", eventKinds(s))
+	}
 	offlineAt := r.ReceivedAt.Add(agentOfflineAfter + time.Second)
 	s.scanOffline(offlineAt)
 	s.scanOffline(offlineAt.Add(5 * time.Second))

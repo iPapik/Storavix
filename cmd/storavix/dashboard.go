@@ -203,16 +203,21 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		add := func(message, severity, condition, status string) {
 			data.Problems = append(data.Problems, DashboardProblem{"server", r.ID, r.Hostname, message, severity, conditions.since(condition, status)})
 		}
-		offline := now.Sub(r.ReceivedAt) > agentOfflineAfter
+		age := now.Sub(r.ReceivedAt)
+		offline := age > agentOfflineAfter
+		stale := age > agentStaleAfter
 		h := DashboardHost{ID: r.ID, Name: r.Hostname, Status: "up"}
 		if offline {
 			h.Status = "down"
-			add("Агент не отвечает", "critical", "availability", "down")
+			add("Подтверждена потеря телеметрии агента", "critical", "availability", "down")
+		} else if stale {
+			// Missing fresh metrics is not a confirmed outage. Suppress false RAID health.
+			h.Status = "stale"
 		}
 		issue := "active"
 		addProblem := func(name, status, condition string) {
 			rank := storageIssueRank(status)
-			if offline || rank == 0 {
+			if stale || rank == 0 {
 				return
 			}
 			if rank > storageIssueRank(issue) {
@@ -246,7 +251,7 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, a := range r.Arrays {
 			status, memberIssue := a.Status, false
-			if offline {
+			if stale {
 				status = "stale"
 			} else {
 				for _, id := range a.Members {
@@ -258,7 +263,7 @@ func (s *server) getDashboardData(w http.ResponseWriter, r *http.Request) {
 			data.Arrays = append(data.Arrays, DashboardArray{r.ID, r.Hostname, a.Name, a.Level, status, memberIssue})
 			addProblem(a.Name, a.Status, arrayMonitorKey(a))
 		}
-		if !offline {
+		if !stale {
 			if issue == "inactive" {
 				h.Status = "critical"
 			} else if storageIssueRank(issue) != 0 {

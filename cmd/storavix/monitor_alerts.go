@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	agentOfflineAfter = 2 * time.Minute
+	// Do not treat a couple of missed heartbeats as a server outage.
+	agentStaleAfter   = 2 * time.Minute
+	agentOfflineAfter = 10 * time.Minute
 	eventHistoryLimit = 1000
 	mailQueueLimit    = 500
 )
@@ -227,9 +229,10 @@ func limitChange(key, detail string, value float64, limit, hysteresis int, previ
 func (s *server) observeAgentLocked(r telemetry.Report) {
 	key := "server:" + r.ID
 	prior := s.state.Monitor[key].Conditions
-	availabilityDetail := "Получен отчёт агента."
+	availabilityDetail := "Получен отчёт агента. Мониторинг телеметрии восстановлен."
 	if previous := prior["availability"]; previous.Status == "down" && !previous.Since.IsZero() {
-		availabilityDetail = fmt.Sprintf("Получен отчёт агента. Отсутствие связи после срабатывания тревоги: %s.", r.ReceivedAt.Sub(previous.Since).Round(time.Second))
+		availabilityDetail = fmt.Sprintf("Получен отчёт агента. Продолжительность подтверждённой потери телеметрии: %s. %s",
+			r.ReceivedAt.Sub(previous.Since).Round(time.Second), reportIncidentSummary(r))
 	}
 	changes := []monitorChange{{"availability", "up", "server_up", availabilityDetail, false}}
 	if r.Temperature != nil {
@@ -310,6 +313,26 @@ func (s *server) observeNetworkLocked(n NetworkConfig, sample networkSample) {
 	s.applyMonitorLocked(key, n.Generation, n.Name, sample.at, changes)
 }
 
+// reportIncidentSummary enriches email notifications using the last accepted
+// report, without assuming old metrics still describe the current server.
+func reportIncidentSummary(r telemetry.Report) string {
+	items := []string{}
+	if r.OSName != "" { items = append(items, "ОС: "+r.OSName) }
+	if r.Version != "" { items = append(items, "Агент: "+r.Version) }
+	if r.UptimeSeconds != nil { items = append(items, fmt.Sprintf("Время работы ОС на момент последнего отчёта: %s", (time.Duration(*r.UptimeSeconds)*time.Second).Round(time.Minute))) }
+	if r.CPUPercent != nil { items = append(items, fmt.Sprintf("ЦП на момент последнего отчёта: %.1f%%", *r.CPUPercent)) }
+	if r.MemoryPercent != nil { items = append(items, fmt.Sprintf("Память на момент последнего отчёта: %.1f%%", *r.MemoryPercent)) }
+	if r.DiskPercent != nil { items = append(items, fmt.Sprintf("Системный том на момент последнего отчёта: %.1f%%", *r.DiskPercent)) }
+	if r.Diagnostics != nil {
+		d := r.Diagnostics
+		if d.MetricsStatus != "" { items=append(items, "Сбор метрик: "+d.MetricsStatus) }
+		if d.SampleAgeSeconds != nil { items=append(items, fmt.Sprintf("Возраст метрик: %d с",*d.SampleAgeSeconds)) }
+		if d.SendFailures > 0 { items=append(items,fmt.Sprintf("Предыдущие ошибки доставки: %d",d.SendFailures)) }
+	}
+	if len(items)==0 {return "Дополнительная телеметрия отсутствует."}
+	return strings.Join(items, ". ")+"."
+}
+
 func (s *server) scanOffline(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -317,8 +340,9 @@ func (s *server) scanOffline(now time.Time) {
 		if now.Sub(r.ReceivedAt) > agentOfflineAfter {
 			s.applyMonitorLocked("server:"+r.ID, "", r.Hostname, now.UTC(), []monitorChange{
 				{"availability", "down", "server_down",
-					fmt.Sprintf("Отчёты не поступают %s (порог %s). Последний полученный отчёт: %s UTC. Это не подтверждение выключения Windows.",
-						now.Sub(r.ReceivedAt).Round(time.Second), agentOfflineAfter, r.ReceivedAt.UTC().Format("02.01.2006 15:04:05")), true},
+					fmt.Sprintf("Подтверждена потеря телеметрии: новых отчётов нет %s (порог %s). Последний успешно полученный отчёт: %s UTC. %s Причину следует искать в службе агента, сети и журнале Windows; само выключение ОС этим событием не подтверждается.",
+						now.Sub(r.ReceivedAt).Round(time.Second), agentOfflineAfter,
+						r.ReceivedAt.UTC().Format("02.01.2006 15:04:05"), reportIncidentSummary(r)), true},
 			})
 		}
 	}

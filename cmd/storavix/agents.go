@@ -108,7 +108,7 @@ func (s *server) onlineCount() int {
 	now := time.Now()
 	n := 0
 	for _, r := range s.agents {
-		if now.Sub(r.ReceivedAt) <= 120*time.Second {
+		if now.Sub(r.ReceivedAt) <= agentStaleAfter {
 			n++
 		}
 	}
