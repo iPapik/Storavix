@@ -60,6 +60,8 @@ type Alert struct {
 	Kind          string    `json:"kind,omitempty"`
 	Delivery      string    `json:"delivery,omitempty"`
 	DeliveryError string    `json:"deliveryError,omitempty"`
+	TelegramDelivery string `json:"telegramDelivery,omitempty"`
+	TelegramDeliveryError string `json:"telegramDeliveryError,omitempty"`
 }
 type State struct {
 	Users           map[string]StoredAccount  `json:"users,omitempty"`
@@ -68,6 +70,8 @@ type State struct {
 	PassHash        string                    `json:"passHash"`
 	Mail            MailConfig                `json:"mail"`
 	EncryptedSecret string                    `json:"encryptedSecret"`
+	Telegram TelegramConfig `json:"telegram,omitempty"`
+	EncryptedTelegramToken string `json:"encryptedTelegramToken,omitempty"`
 	Monitor         map[string]monitorState   `json:"monitor,omitempty"`
 	Alerts          []Alert                   `json:"alerts"`
 	Dashboard       *DashboardConfig          `json:"dashboard,omitempty"`
@@ -84,6 +88,7 @@ type server struct {
 	sessions       map[string]userSession
 	loginAttempts  map[string][]time.Time
 	mailLast       time.Time
+	telegramLast time.Time
 	secureCookies  bool
 	agents         map[string]telemetry.Report
 	deletedAgents  map[string]bool
@@ -148,9 +153,10 @@ func serve(dir, addr string) error {
 		s.pollNetwork(ctx)
 	}()
 	var monitoring sync.WaitGroup
-	monitoring.Add(2)
+	monitoring.Add(3)
 	go func() { defer monitoring.Done(); s.runOfflineMonitor(ctx) }()
 	go func() { defer monitoring.Done(); s.runMonitorMail(ctx) }()
+	go func() { defer monitoring.Done(); s.runMonitorTelegram(ctx) }()
 	defer func() { stop(); <-networkDone; monitoring.Wait() }()
 	h := s.routes()
 	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 90 * time.Second}
@@ -353,6 +359,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.requireAuth(s.logout))
 	mux.HandleFunc("GET /api/summary", s.requireAuth(s.summary))
 	mux.HandleFunc("GET /api/settings/mail/events", s.authorize(Account.admin, func(w http.ResponseWriter, _ *http.Request) { sendJSON(w, 200, alertRules) }))
+	mux.HandleFunc("GET /api/settings/telegram", s.authorize(Account.admin, s.getTelegram))
+	mux.HandleFunc("PUT /api/settings/telegram", s.authorize(Account.admin, s.setTelegram))
+	mux.HandleFunc("POST /api/settings/telegram/test", s.authorize(Account.admin, s.testTelegram))
+	mux.HandleFunc("POST /api/settings/telegram/chats", s.authorize(Account.admin, s.telegramChats))
 	mux.HandleFunc("GET /api/settings/mail", s.authorize(Account.admin, s.getMail))
 	mux.HandleFunc("PUT /api/settings/mail", s.authorize(Account.admin, s.setMail))
 	mux.HandleFunc("GET /api/settings/syslog", s.authorize(Account.admin, s.getSyslogSettings))
