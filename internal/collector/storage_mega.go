@@ -193,6 +193,8 @@ func cliSource(path string) string {
 }
 
 func readMega(path string) (Inventory, string) {
+	megaCommandMu.Lock()
+	defer megaCommandMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
 	defer cancel()
 	run := func(args ...string) []byte {

@@ -8,6 +8,8 @@ import (
 )
 func LocateDrive(c telemetry.LocateCommand) error {
  if _,_,err:=LocateTarget(c);err!=nil{return err}
+ if !megaCommandMu.TryLock() {return errors.New("Идёт опрос RAID, повторите Locate через несколько секунд")}
+ defer megaCommandMu.Unlock()
  // Use the same trusted CLI discovery as inventory. Never accept an executable path from the server.
  for _,path:=range windowsMegaTools() {
   if !isTool(path) || cliSource(path)!=c.Source {continue}

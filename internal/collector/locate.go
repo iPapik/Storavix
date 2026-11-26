@@ -4,8 +4,10 @@ import (
  "errors"
  "regexp"
  "strings"
+ "sync"
  "github.com/iPapik/Storavix/internal/telemetry"
 )
+var megaCommandMu sync.Mutex
 var locateController = regexp.MustCompile(`^mega:(/c[0-9]{1,5})$`)
 var locateSlot = regexp.MustCompile(`^([0-9]{0,5}):([0-9]{1,5})$`)
 

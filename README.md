@@ -1,6 +1,6 @@
 # Storavix
 
-**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.24** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
+**Storavix** — платформа мониторинга Windows, Linux, RAID и сетевой инфраструктуры. Версия **v0.2.25** собирает метрики серверов, ёмкость файловых систем, события SNMP и состояние RAID через Linux MD, Windows Storage Spaces, StorCLI/PercCLI и HPE SSA CLI.
 
 ![Storavix logo](internal/web/static/storavix-logo.webp)
 
@@ -71,6 +71,10 @@ sudo storavix-update
 ```
 
 Сохраняются учётные записи, пароли, SMTP, Telegram и данные в `/var/lib/storavix`. Подробности и разбор проблем: [обновление Linux/Windows](docs/UPDATE-RU.md). Windows пока обновляется отдельным PowerShell-скриптом; эта команда предназначена только для Linux с systemd. Агенты, установленные **на других серверах**, отдельно не обновляются.
+
+## Идентификация физических дисков RAID
+
+Для Windows-агентов v0.2.25+ с поддерживаемым StorCLI/PercCLI в карточке диска доступны Locate и Stop Locate. Сверяется серийный номер, команда меняет только индикатор. [Руководство](docs/LOCATE-RU.md).
 
 ## Telegram-уведомления
 

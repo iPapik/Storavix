@@ -156,6 +156,8 @@ func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, "Не удалось сохранить удаление")
 		return
 	}
+	delete(s.locateCommands, id)
+	delete(s.locatePolls, id)
 	key := "server:" + id
 	if monitor, ok := s.state.Monitor[key]; ok {
 		delete(s.state.Monitor, key)

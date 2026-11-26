@@ -554,6 +554,13 @@ async function loadServer(id, first = false) {
   if (first) content.replaceChildren(makeText('p', 'Загружаем данные сервера…', 'muted'));
   try {
     const report = await api('/api/agents/' + encodeURIComponent(id));
+    if (isAdmin() && report.os === 'windows' && report.storage?.drives?.length) {
+      try {
+        const state = await api('/api/agents/' + encodeURIComponent(id) + '/locate');
+        const drive = report.storage.drives.find(d => d.controller === state.controller && d.slot === state.slot && d.serial === state.serial);
+        if (drive && state.id) locateStatus.set(locateKey(report, drive), state);
+      } catch (_) { /* Older server or lost status; inventory still renders. */ }
+    }
     if (currentRoute.page === 'server' && currentRoute.id === id && request === serverRequest) {
       if (!content.querySelector('button:disabled')) renderServer(report);
     }
@@ -772,6 +779,7 @@ function locateCell(report, drive) {
   start.type = stop.type = 'button';
   start.disabled = stop.disabled = active;
   const note = makeText('small', status?.message || 'LED физического диска', 'storage-cell-note');
+  note.setAttribute('role','status');
   const perform = async action => {
     if (active || !isAdmin()) return;
     if (action === 'start' && !window.confirm('Включить индикатор диска на ' + report.hostname + '\n' + drive.controller + ' · слот ' + drive.slot + '\nS/N: ' + drive.serial + '\nСверьте физический диск перед извлечением.')) return;
@@ -780,6 +788,7 @@ function locateCell(report, drive) {
     const path = '/api/agents/' + encodeURIComponent(report.id) + '/locate';
     try {
       let state = await api(path, {method:'POST',body:JSON.stringify({driveId:drive.id,serial:drive.serial,action})});
+      if (epoch !== sessionEpoch) return;
       locateStatus.set(key, state);
       note.textContent = state.message;
       for (let i=0; i<40 && ['queued','running'].includes(state.status); i++) {
