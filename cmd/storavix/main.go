@@ -91,6 +91,8 @@ type server struct {
 	telegramLast time.Time
 	secureCookies  bool
 	agents         map[string]telemetry.Report
+	locateCommands map[string]locateRecord
+	locatePolls map[string]time.Time
 	deletedAgents  map[string]bool
 	networkSamples map[string]networkSample
 	networkWake    chan struct{}
@@ -396,6 +398,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/network/{id}", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.deleteNetworkDevice))
 	mux.HandleFunc("POST /api/network/check", s.authorize(func(a Account) bool { return a.network() && a.write() }, s.requestNetworkPoll))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authorize(Account.admin, s.deleteAgent))
+	mux.HandleFunc("POST /api/agents/{id}/locate", s.authorize(Account.admin, s.requestLocate))
+	mux.HandleFunc("GET /api/agents/{id}/locate", s.authorize(Account.admin, s.getLocate))
+	mux.HandleFunc("POST /api/agent/locate", s.pollLocate)
 	mux.HandleFunc("POST /api/agent/report", s.ingestAgent)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" || r.URL.Path == "/style.css" || strings.HasSuffix(r.URL.Path, ".js") {

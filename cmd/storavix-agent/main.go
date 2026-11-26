@@ -129,6 +129,9 @@ func main() {
 		hostname = hostname[:128]
 	}
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	if !*once && runtime.GOOS == "windows" {
+		go runLocateWorker(client, normalizedURL, token, id)
+	}
 	osName := collector.OSName()
 	agentStartedAt := time.Now()
 	var sendFailures uint64

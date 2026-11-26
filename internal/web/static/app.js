@@ -148,6 +148,7 @@ function showAuth() {
     resetUserForm();
     resetSNMPJournal();
     systemsCache = [];
+    locateStatus.clear();
     for (const id of ['systems-grid', 'detail-content', 'network-detail', 'storage-servers', 'syslog-rows', 'users-list']) $(id).replaceChildren();
     $('syslog-filter').reset();
     syslogFilters = {};
@@ -754,9 +755,60 @@ function dataTable(columns, rows) {
   return wrap;
 }
 
-function driveTable(drives) {
+const locateStatus = new Map();
+function locateKey(report, drive) { return JSON.stringify([report.id, drive.id, drive.serial]); }
+function locateCell(report, drive) {
+  const box = document.createElement('div');
+  const controller = (report.storage?.controllers || []).find(c => c.id === drive.controller);
+  const supported = report.os === 'windows' && ['storcli', 'perccli', 'storcli2', 'perccli2'].includes(controller?.source) &&
+    /^mega:\/c\d+$/.test(drive.controller) && /^\d*:\d+$/.test(drive.slot || '') && !!drive.serial;
+  if (!isAdmin()) return makeText('span', '—', 'muted');
+  if (!supported) return makeText('small', 'Недоступно: нет точного адреса/SN или поддерживаемого CLI', 'muted');
+  const key = locateKey(report, drive);
+  const status = locateStatus.get(key);
+  const active = ['queued', 'running'].includes(status?.status);
+  const start = makeText('button', 'Locate', 'secondary small');
+  const stop = makeText('button', 'Stop Locate', 'secondary small');
+  start.type = stop.type = 'button';
+  start.disabled = stop.disabled = active;
+  const note = makeText('small', status?.message || 'LED физического диска', 'storage-cell-note');
+  const perform = async action => {
+    if (active || !isAdmin()) return;
+    if (action === 'start' && !window.confirm('Включить индикатор диска на ' + report.hostname + '\n' + drive.controller + ' · слот ' + drive.slot + '\nS/N: ' + drive.serial + '\nСверьте физический диск перед извлечением.')) return;
+    const epoch = sessionEpoch;
+    start.disabled = stop.disabled = true;
+    const path = '/api/agents/' + encodeURIComponent(report.id) + '/locate';
+    try {
+      let state = await api(path, {method:'POST',body:JSON.stringify({driveId:drive.id,serial:drive.serial,action})});
+      locateStatus.set(key, state);
+      note.textContent = state.message;
+      for (let i=0; i<40 && ['queued','running'].includes(state.status); i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (epoch !== sessionEpoch) return;
+        state = await api(path);
+        if (state.id !== locateStatus.get(key)?.id) throw new Error('Команда заменена. Проверьте индикатор физически.');
+        locateStatus.set(key,state);
+        note.textContent = state.message;
+      }
+    } catch(e) {
+      if (epoch !== sessionEpoch) return;
+      locateStatus.set(key,{status:'unknown',message:e.message});
+      note.textContent = e.message;
+    } finally {
+      if (epoch === sessionEpoch) {
+        start.disabled = stop.disabled = false;
+        if (currentRoute.page === 'server' && currentRoute.id === report.id) loadServer(report.id);
+      }
+    }
+  };
+  start.addEventListener('click',()=>perform('start'));
+  stop.addEventListener('click',()=>perform('stop'));
+  box.append(start,stop,note);
+  return box;
+}
+function driveTable(drives, report) {
   return dataTable(
-    ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Состояние'],
+    ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Состояние', 'Идентификация'],
     drives.map(d => {
       const health = document.createElement('div');
       health.append(healthTag(d.status));
@@ -767,12 +819,12 @@ function driveTable(drives) {
       model.append(makeText('span', d.model || '—'));
       if (d.firmware) model.append(makeText('small', 'FW ' + d.firmware, 'storage-cell-note'));
       return [[d.slot, d.device].filter(Boolean).join(' · ') || '—', model, d.serial || '—',
-        [d.interface, d.media].filter(Boolean).join(' / ') || '—', d.sizeBytes ? fmtBytes(d.sizeBytes) : '—', health];
+        [d.interface, d.media].filter(Boolean).join(' / ') || '—', d.sizeBytes ? fmtBytes(d.sizeBytes) : '—', health, locateCell(report, d)];
     })
   );
 }
 
-function arrayInfo(array, drives, open) {
+function arrayInfo(array, drives, open, report) {
   const card = document.createElement('details');
   card.className = 'storage-array';
   card.dataset.storageKey = JSON.stringify([array.controller, array.group, array.name]);
@@ -791,7 +843,7 @@ function arrayInfo(array, drives, open) {
     ['Состояние массива по данным источника', array.detail || storageStates[array.status]?.[0]]
   ];
   for (const [key, value] of fields) if (value != null && value !== '') detailRow(card, key, value);
-  if (members.length) card.append(driveTable(members));
+  if (members.length) card.append(driveTable(members, report));
   else card.append(makeText('p', 'Источник не передал состав массива.', 'muted'));
   return card;
 }
@@ -838,18 +890,18 @@ function storageInventory(report, open = new Set()) {
       c.firmware && ('FW ' + c.firmware), c.detail].filter(Boolean);
     if (identity.length) block.append(makeText('p', identity.join(' · '), 'muted'));
     if (c.source === 'raid-os') block.append(makeText('p', 'Для состояния массивов и списка физических дисков нужна утилита производителя.', 'muted'));
-    for (const a of list) block.append(arrayInfo(a, drives, open));
+    for (const a of list) block.append(arrayInfo(a, drives, open, report));
     if (attached.length) {
       const physical = document.createElement('details');
       physical.className = 'storage-array';
       physical.dataset.storageKey = c.id;
       physical.open = open.has(c.id);
-      physical.append(makeText('summary', 'Все физические диски (' + attached.length + ')'), driveTable(attached));
+      physical.append(makeText('summary', 'Все физические диски (' + attached.length + ')'), driveTable(attached, report));
       block.append(physical);
     }
     host.append(block);
   }
-  for (const a of arrays.filter(a => !a.controller)) host.append(arrayInfo(a, drives, open));
+  for (const a of arrays.filter(a => !a.controller)) host.append(arrayInfo(a, drives, open, report));
   if (!controllers.length && !arrays.length) {
     const available = inventory?.sources?.some(source => source.status === 'ok');
     const message = !inventory ? 'Ожидание инвентаризации. Проверьте версию агента.' :
