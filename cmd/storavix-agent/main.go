@@ -252,6 +252,20 @@ func send(client *http.Client, base, token string, r telemetry.Report) error {
 		message := strings.TrimSpace(string(msg))
 		// Older Storavix servers reject unknown JSON fields before ingesting.
 		if ans.StatusCode == http.StatusBadRequest && message == `{"error":"invalid report"}` {
+			// Compatibility with servers older than 0.2.26.
+			if r.Storage != nil {
+				changed := false
+				storage := *r.Storage
+				storage.Drives = append([]telemetry.Drive(nil), storage.Drives...)
+				for i := range storage.Drives {
+					d := &storage.Drives[i]
+					if d.RebuildStatus != "" || d.RebuildRemaining != "" {
+						d.RebuildStatus, d.RebuildRemaining = "", ""
+						changed = true
+					}
+				}
+				if changed { r.Storage = &storage; continue }
+			}
 			// Compatibility with servers older than 0.2.23.
 			// Do not discard storage metrics or identity when stripping new fields.
 			if r.Diagnostics != nil || r.CPUModel != "" || r.CPUCores != 0 || r.CPUThreads != 0 {

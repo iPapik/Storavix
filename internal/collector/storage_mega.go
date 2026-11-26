@@ -117,20 +117,76 @@ func megaDetails(responses []megaController) map[megaKey]megaResponse {
 
 var megaRebuild = regexp.MustCompile(`^(/c[0-9]+)(?:/e([0-9]+))?/s([0-9]+)(?:\s+.*)?$`)
 
-func megaProgress(responses []megaController) map[megaKey]*float64 {
-	out := make(map[megaKey]*float64)
+type megaRebuildInfo struct {
+	Progress *float64
+	Status string
+	Remaining string
+}
+
+// Keep native units and do not invent an estimate for unavailable values.
+func megaRebuildDetails(responses []megaController) map[megaKey]megaRebuildInfo {
+	out := make(map[megaKey]megaRebuildInfo)
 	for _, c := range responses {
+		controller := "/c" + c.Command.value("Controller")
 		for key := range c.Data {
-			for _, d := range c.Data.rows(key) {
-				path := d.value("Drive-ID", "Drive")
+			rows := c.Data.rows(key)
+			if len(rows) == 0 {
+				if row := c.Data.object(key); row != nil { rows = []megaResponse{row} }
+			}
+			for _, d := range rows {
+				path := d.value("Drive-ID", "Drive", "Drive ID")
+				if path == "" { path = strings.TrimPrefix(key, "Drive ") }
+				m := megaRebuild.FindStringSubmatch(path)
+				if m == nil || m[1] != controller { continue }
+				status := d.value("Status", "Rebuild Status")
 				pct := number(d.value("Progress%", "Progress %", "Progress"), 0, 100)
-				if m := megaRebuild.FindStringSubmatch(path); m != nil && pct != nil {
-					out[megaKey{m[1], m[2] + ":" + m[3]}] = pct
+				switch strings.ToLower(strings.TrimSpace(status)) {
+				case "not in progress", "not started", "completed", "complete": continue
 				}
+				remaining := d.value("Estimated Time Left", "Estimated Time Remaining", "Time Left")
+				switch strings.ToLower(strings.TrimSpace(remaining)) {
+				case "", "-", "n/a", "na", "unknown", "not available", "not applicable": remaining = ""
+				}
+				if pct == nil && status == "" && remaining == "" { continue }
+				k := megaKey{m[1], m[2] + ":" + m[3]}
+				v := out[k]
+				if pct != nil { v.Progress = pct }
+				if status != "" { v.Status = text(status, 120) }
+				if remaining != "" { v.Remaining = text(remaining, 120) }
+				out[k] = v
 			}
 		}
 	}
 	return out
+}
+
+func megaProgress(responses []megaController) map[megaKey]*float64 {
+	out := make(map[megaKey]*float64)
+	for key, row := range megaRebuildDetails(responses) {
+		if row.Progress != nil { out[key] = row.Progress }
+	}
+	return out
+}
+
+func megaFullState(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "onln", "online": return "Online"
+	case "rbld", "rebuild", "rebuilding": return "Rebuild"
+	case "offln", "ofln", "offline": return "Offline"
+	case "ugood": return "Unconfigured Good"
+	case "ubad": return "Unconfigured Bad"
+	case "ghs": return "Global Hot Spare"
+	case "dhs": return "Dedicated Hot Spare"
+	case "msng": return "Missing"
+	case "dgrd": return "Degraded"
+	case "optl": return "Optimal"
+	case "pdgd": return "Partially Degraded"
+	case "ubunsp": return "Unconfigured Unsupported"
+	case "jbod": return "JBOD"
+	case "cprd": return "Copyback"
+	case "shielded": return "Shielded"
+	default: return raw
+	}
 }
 
 func megaDisk(controller, eidSlot string, row, info megaResponse, progress *float64) telemetry.Drive {
@@ -171,7 +227,7 @@ func megaDisk(controller, eidSlot string, row, info megaResponse, progress *floa
 		ID: controller + "/" + eidSlot, Controller: controller, Slot: eidSlot,
 		Model: clean(model), Serial: clean(info.value("SN", "Serial Number")), Firmware: clean(info.value("Firmware Revision", "Firmware")),
 		Interface: clean(row.value("Intf", "Interface")), Media: clean(row.value("Med", "Media")),
-		Role: role, Status: health, Detail: text(strings.Trim(strings.Join([]string{raw, problem}, " · "), " ·"), 300),
+		Role: role, Status: health, Detail: text(strings.Trim(strings.Join([]string{megaFullState(raw), problem}, " · "), " ·"), 300),
 		SizeBytes: sizeBytes(row.value("Size"), 1024), Temperature: number(info.value("Drive Temperature", "Temperature"), -80, 250),
 		Progress: progress,
 	}
@@ -245,10 +301,20 @@ func readMegaWithRunner(source string, run func(...string) []byte) (Inventory, s
 	}
 	details := megaDetails(detailRows("all"))
 	var progress map[megaKey]*float64
+	var rebuild map[megaKey]megaRebuildInfo
 	if hasMegaRebuild(base) {
-		progress = megaProgress(detailRows("rebuild"))
+		rows := detailRows("rebuild")
+		rebuild = megaRebuildDetails(rows)
+		progress = megaProgress(rows)
 	}
 	result := parseMega(source, base, details, progress)
+	for i := range result.Drives {
+		d := &result.Drives[i]
+		if d.Status != "rebuilding" { continue }
+		key := megaKey{strings.TrimPrefix(d.Controller,"mega:"), d.Slot}
+		info := rebuild[key]
+		d.RebuildStatus, d.RebuildRemaining = info.Status, info.Remaining
+	}
 	for _, d := range result.Drives {
 		if d.Serial == "" && d.Status != "inactive" {
 			status = "partial"
@@ -278,7 +344,7 @@ func megaControllerPaths(data []byte) []string {
 func hasMegaRebuild(base []megaController) bool {
 	for _, c := range base {
 		for _, d := range c.Data.rows("PD LIST") {
-			if deviceHealth(d.value("State", "Status")) == "rebuilding" {
+			if deviceHealth(d.value("State", "Status")) == "rebuilding" || deviceHealth(d.value("Status")) == "rebuilding" {
 				return true
 			}
 		}
@@ -355,7 +421,7 @@ func parseMega(source string, base []megaController, details map[megaKey]megaRes
 			a := telemetry.Array{
 				Name: clean(name), Controller: id, Level: clean(v.value("TYPE", "Type")),
 				Group: clean(fmt.Sprintf("DG %s / VD %s", group, vd)), Status: deviceHealth(state),
-				Detail: text(state, 300), SizeBytes: sizeBytes(v.value("Size"), 1024),
+				Detail: text(megaFullState(state), 300), SizeBytes: sizeBytes(v.value("Size"), 1024),
 				Expected: expected[group], Missing: missing[group],
 			}
 			for _, d := range members[group] {

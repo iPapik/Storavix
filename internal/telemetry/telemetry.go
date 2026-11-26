@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.2.25"
+const AgentVersion = "0.2.26"
 const MaxReports = 500
 const MaxReportBytes = 1024 * 1024
 
@@ -111,6 +111,8 @@ type Drive struct {
 	SizeBytes   uint64   `json:"sizeBytes,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	Progress    *float64 `json:"progress,omitempty"`
+	RebuildStatus string `json:"rebuildStatus,omitempty"`
+	RebuildRemaining string `json:"rebuildRemaining,omitempty"`
 }
 
 const (
@@ -201,7 +203,7 @@ func (r Report) Validate() error {
 			if d.ID == "" || drives[d.ID] != "" || !controllers[d.Controller] ||
 				!shortText(d.ID, d.Slot, d.Device, d.Model, d.Serial, d.Firmware, d.Interface, d.Media, d.Role) ||
 				!validHealth(d.Status) || len(d.Detail) > 300 || !validNumber(d.Temperature, -80, 250) ||
-				!validNumber(d.Progress, 0, 100) {
+				!validNumber(d.Progress, 0, 100) || len(d.RebuildStatus) > 120 || len(d.RebuildRemaining) > 120 {
 				return errors.New("invalid physical drive")
 			}
 			drives[d.ID] = d.Controller

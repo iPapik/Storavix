@@ -46,7 +46,7 @@ const pages = {
   overview: ['Обзор инфраструктуры', ''],
   servers: ['Сервера', ''],
   server: ['Данные сервера', ''],
-  network: ['Маршрутизаторы и коммутаторы', 'Доступность сетевого оборудования, SNMP, Syslog и трафик'],
+  network: ['Маршрутизаторы и коммутаторы', ''],
   device: ['Сетевое оборудование', 'Порты, скорости, трафик и местоположение'],
   'snmp-events': ['Журнал SNMP', ''],
   syslog: ['Журнал Syslog', ''],
@@ -90,7 +90,7 @@ function showRoute() {
   });
   document.querySelectorAll('.page-view').forEach(section =>
     section.classList.toggle('hidden', section.id !== page + '-view'));
-  document.querySelector('.heading').classList.toggle('hidden', page === 'servers');
+  document.querySelector('.heading').classList.toggle('hidden', page === 'servers' || page === 'network');
   const [title, description] = pages[page];
   setPageTitle(title);
   const subtitle = page === 'settings' && !isAdmin() ? '' : description;
@@ -528,7 +528,7 @@ function makeSystemCard(r) {
   card.append(head, metrics);
   return card;
 }
-function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||osDisplay(x).toLowerCase().includes(f) || (x.os || '').toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);$('systems-note').classList.toggle('hidden',systemsCache.length===0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
+function renderSystems(){const grid=$('systems-grid');const f=$('systems-filter').value.trim().toLowerCase();const systems=systemsCache.filter(x=>x.hostname.toLowerCase().includes(f)||osDisplay(x).toLowerCase().includes(f) || (x.os || '').toLowerCase().includes(f));grid.classList.remove('large-layout','standard-layout','compact-layout','list-layout');grid.classList.add(systemsLayout+'-layout');grid.replaceChildren(...systems.map(makeSystemCard));$('systems-empty').classList.toggle('hidden',systemsCache.length!==0);if(systemsCache.length&&!systems.length){const none=document.createElement('p');none.className='systems-note';none.textContent='По фильтру ничего не найдено.';grid.append(none)}}
 let systemsPending = -1;
 async function loadSystems() {
   const epoch = sessionEpoch;
@@ -609,9 +609,7 @@ function renderServer(r) {
   const diagnostics = makeSection('Агент · диагностика и качество данных');
   if (r.diagnostics) {
     const diag = r.diagnostics;
-    const state = {ok: 'Свежие данные', stale: 'Метрики устарели', pending: 'Ожидание первого опроса'}[diag.metricsStatus] || 'Неизвестно';
     for (const [key,value] of [
-      ['Состояние сбора', state],
       ['Последнее измерение', diag.sampleCollectedAt ? new Date(diag.sampleCollectedAt).toLocaleString('ru-RU') : '—'],
       ['Возраст метрик', diag.sampleAgeSeconds != null ? diag.sampleAgeSeconds + ' с' : '—'],
       ['Продолжительность опроса ОС', diag.sampleDurationMs != null ? diag.sampleDurationMs + ' мс' : '—'],
@@ -778,7 +776,7 @@ function locateCell(report, drive) {
   const stop = makeText('button', 'Stop Locate', 'secondary small');
   start.type = stop.type = 'button';
   start.disabled = stop.disabled = active;
-  const note = makeText('small', status?.message || 'LED физического диска', 'storage-cell-note');
+  const note = makeText('small', status?.message || '', 'storage-cell-note');
   note.setAttribute('role','status');
   const perform = async action => {
     if (active || !isAdmin()) return;
@@ -815,14 +813,41 @@ function locateCell(report, drive) {
   box.append(start,stop,note);
   return box;
 }
+function fullDriveState(raw) {
+  return ({onln:'Online',online:'Online',rbld:'Rebuild',rebuild:'Rebuild',rebuilding:'Rebuild',offln:'Offline',ofln:'Offline',offline:'Offline',ugood:'Unconfigured Good',ubad:'Unconfigured Bad',ghs:'Global Hot Spare',dhs:'Dedicated Hot Spare',msng:'Missing',dgrd:'Degraded',optl:'Optimal',pdgd:'Partially Degraded',ubunsp:'Unconfigured Unsupported',jbod:'JBOD',cprd:'Copyback'})[(raw || '').trim().toLowerCase()] || raw || '';
+}
+function rebuildDetails(d) {
+  const block = document.createElement('div');
+  block.className = 'rebuild-detail';
+  const status = d.rebuildStatus || 'Rebuild';
+  block.append(makeText('small', 'Состояние: ' + status, 'storage-cell-note'));
+  if (Number.isFinite(d.progress) && d.progress >= 0 && d.progress <= 100) {
+    const bar = document.createElement('progress');
+    bar.className = 'rebuild-progress';
+    bar.max = 100;
+    bar.value = d.progress;
+    bar.setAttribute('aria-label', 'Прогресс восстановления');
+    block.append(makeText('small', 'Прогресс: ' + fmtPercent(d.progress), 'storage-cell-note'), bar);
+  } else block.append(makeText('small', 'Прогресс: нет данных', 'storage-cell-note'));
+  const remaining = d.rebuildRemaining;
+  block.append(makeText('small', 'Осталось: ' + (remaining ? remaining.replace(/\bDays?\b/gi,'дн.').replace(/\bHours?\b/gi,'ч.').replace(/\bMinutes?\b/gi,'мин.').replace(/\bSeconds?\b/gi,'с.') : 'контроллер не сообщил'), 'storage-cell-note'));
+  return block;
+}
 function driveTable(drives, report) {
   return dataTable(
     ['Слот / устройство', 'Модель', 'Серийный номер', 'Тип', 'Объём', 'Состояние', 'Идентификация'],
     drives.map(d => {
       const health = document.createElement('div');
-      health.append(healthTag(d.status));
-      if (d.detail) health.append(makeText('small', d.detail, 'storage-cell-note'));
-      if (d.progress != null) health.append(makeText('small', fmtPercent(d.progress), 'storage-cell-note'));
+      const raw = (d.detail || '').split(' · ');
+      const native = fullDriveState(raw[0]);
+      const isMega = /^mega:\/c\d+$/.test(d.controller);
+      const fallback = {active:'Online',degraded:'Degraded',rebuilding:'Rebuild',inactive:'Unavailable',unknown:'Unknown',stale:'Stale'}[d.status] || 'Unknown';
+      health.append(healthTag(d.status, isMega && native ? native : fallback));
+      if (isMega && raw.length > 1) health.append(makeText('small', raw.slice(1).join(' · '), 'storage-cell-note'));
+      else if (!isMega && d.detail) health.append(makeText('small', d.detail, 'storage-cell-note'));
+      if (isMega && d.status === 'degraded' && native !== 'Degraded') health.append(makeText('small', 'Degraded', 'storage-cell-note'));
+      if (d.status === 'rebuilding') health.append(rebuildDetails(d));
+      else if (d.progress != null) health.append(makeText('small', fmtPercent(d.progress), 'storage-cell-note'));
       if (d.temperature != null) health.append(makeText('small', d.temperature + ' °C', 'storage-cell-note'));
       const model = document.createElement('div');
       model.append(makeText('span', d.model || '—'));
@@ -870,13 +895,6 @@ function storageInventory(report, open = new Set()) {
     sources.className = 'storage-sources';
     const collected = new Date(inventory.collectedAt);
     sources.append(makeText('strong', 'Опрос хранилища ' + collected.toLocaleString('ru-RU')));
-    for (const source of inventory.sources || []) {
-      const name = storageSources[source.name] || source.name;
-      const noPools = source.name === 'windows-spaces' && source.status === 'ok' &&
-        !inventory.controllers?.some(controller => controller.source === 'windows-spaces');
-      sources.append(makeText('span', name + ' · ' + (noPools ? 'пулы не настроены' : storageSourceStates[source.status]),
-        'tag ' + (source.status === 'error' || source.status === 'partial' ? 'storage-warning' : 'grey')));
-    }
     host.append(sources);
   }
   if (fmtArrayCount(report) !== '—' || (inventory?.drives || []).length) {

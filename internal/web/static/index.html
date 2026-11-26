@@ -34,11 +34,10 @@
    <div id="widget-grid" class="widget-grid"></div>
   </section>
  <section id="servers-view" class="page-view hidden">
-  <div class="systems-toolbar"><div><h2>Сервера</h2><p>Выберите сервер для просмотра телеметрии и состояния RAID.</p></div>
+  <div class="systems-toolbar"><div><h2>Сервера</h2></div>
     <div class="systems-actions"><input id="systems-filter" aria-label="Фильтр систем" placeholder="Фильтр..."><label class="systems-layout-label" for="systems-layout">Сетка:</label><select id="systems-layout" class="systems-layout-select" aria-label="Способ отображения серверов"><option value="large">Крупные · 2 колонки</option><option value="standard">Стандартные · 3 колонки</option><option value="compact">Компактные · 4 колонки</option><option value="list">Список · 1 колонка</option></select><button id="systems-refresh" class="secondary" type="button">Обновить</button></div></div>
   <div id="systems-empty" class="panel systems-no-data hidden"><h3>Нет подключённых систем</h3><p>Установите Storavix Agent на сервер Windows или Linux и настройте токен. Измерения появятся здесь автоматически.</p></div>
   <div id="systems-grid" class="systems-grid"></div>
-  <div id="systems-note" class="systems-note">В карточке сервера доступны метрики, файловые системы и RAID-инвентаризация.</div>
  </section>
  <section id="server-view" class="page-view hidden">
   <div class="page-toolbar server-toolbar">
@@ -53,7 +52,6 @@
  </section>
  <section id="network-view" class="page-view hidden">
   <div class="systems-toolbar network-toolbar">
-   <div><h2>Маршрутизаторы и коммутаторы</h2><p>SNMP, Syslog, интерфейсы, трафик и доступность оборудования.</p></div>
    <div class="systems-actions">
     <input id="network-filter" aria-label="Фильтр сетевого оборудования" placeholder="Имя, IP, местоположение...">
     <label class="systems-layout-label" for="network-layout">Сетка:</label>
